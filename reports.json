@@ -1,0 +1,134 @@
+[
+  {
+    "id": "1",
+    "title": "1.2 - Vendas Por Periodo",
+    "category": "vendas",
+    "content": "Exibe todas movimentacoes dos Pedidos de forma Sintetica ou Analitica, permitindo filtrar por Empresa, por Cliente/Vendedor, tipo de pedido, por status, Grupo/SubGrupo."
+  },
+  {
+    "id": "2",
+    "title": "1.10 - Comissao de Vendedores - Aliquota Produtos",
+    "category": "vendas",
+    "content": "Relatorio que mostra a comissao por item, dando autonomia a customizacao ao tecnico por ser customizado, quebrando por vendedor ou pesquisando apenas um. (modelo sintetico e analitico)\n\nProcedure: STP_COMISSPROD"
+  },
+  {
+    "id": "3",
+    "title": "1.15 - Notas Fiscais Emitidas",
+    "category": "vendas",
+    "content": "Exibe todo o faturamento realizado por NFe - Sintetica, dando opcao de pesquisar por status de nota, UF, Cliente e CFOP. (Modelo 1 - Impressao Matricial e Modelo 2 - Impressao A4)."
+  },
+  {
+    "id": "4",
+    "title": "1.53 - Relatorio de Pedidos/Produtos/Financeiro",
+    "category": "vendas",
+    "content": "Relatorio muito utilizado para conferencia de toda movimentacao, que teve por pedido, ja que e o mais indicado para uma analise analitica do faturamento, podendo nele ver uma possivel negociacao realizada de venda a venda. Possui filtro por cliente/vendedor e o principal por situacao do financeiro, com opcao para exportar para Excel."
+  },
+  {
+    "id": "5",
+    "title": "1.55 - Clientes sem movimentacao",
+    "category": "vendas",
+    "content": "Lista os clientes que nao foram atendidos em sua empresa, no periodo informado."
+  },
+  {
+    "id": "6",
+    "title": "1.60 - Relatorio de Gestao de Vendas",
+    "category": "vendas",
+    "content": "Mapeia todos os pedidos, filtrando por vendedor/cliente/supervisor, por tipo de pedido e por status normal ou faturado, informando um resumo gerencial do financeiro e detalhando todos os itens que tiveram movimentacao no periodo do filtro."
+  },
+  {
+    "id": "7",
+    "title": "1.93 - Mapa de Vendas e Positivacao",
+    "category": "vendas",
+    "content": "Neste relatorio temos o diferencial, que e passar pro cliente a autonomia na consulta realizada, listando todas as vendas realizadas por pedido, onde voce configura a quebra/forma que deseja visualizar, tendo a possibilidade de salvar este filtro e utilizar quando necessario, podendo ordenar por descricao ou por valor/quantidade, sendo em ordem crescente ou decrescente."
+  },
+  {
+    "id": "8",
+    "title": "1.103 - Relatorio de Curva ABC",
+    "category": "vendas",
+    "content": "O Relatorio de Curva ABC, tambem conhecido como 80-20 ou analise de Pareto, e uma metodologia de classificacao de extrema importancia, que voce pode utilizar para acarretar ainda mais suas vendas, lembrando que pra funcionar a soma dos campos ABC tem que dar os 100%, podendo imprimir ou salvar em excel esta consulta.\n\nProcedure: R_1103GERAL"
+  },
+  {
+    "id": "9",
+    "title": "1.108 - Produtos sem venda",
+    "category": "vendas",
+    "content": "Lista os produtos sem giro, no periodo informado."
+  },
+  {
+    "id": "10",
+    "title": "2.7 - Extrato Bancario",
+    "category": "financeiro",
+    "content": "Detalha as movimentacoes bancarias, lhe dando o saldo de cada conta, temos 5 modelos pra atender da melhor forma a necessidade da informacao - Lembro que tambem e exportavel pro excel."
+  },
+  {
+    "id": "11",
+    "title": "2.45 - Centro de Custo - Varios Centros",
+    "category": "financeiro",
+    "content": "Lista os financeiros (A pagar/receber), detalhando/filtrando por centro de custo."
+  },
+  {
+    "id": "12",
+    "title": "2.47 - Titulos por Tipo de Pagamento",
+    "category": "financeiro",
+    "content": "Se trata da consulta mais detalhada que temos pra parte financeiro (A pagar/receber), filtrando por forma de pagamento, possibilitando consultas por empresa, cliente/fornecedor, vendedor ou realizando quebras facilitando o entendimento - Lembro que tambem e exportavel pro excel."
+  },
+  {
+    "id": "13",
+    "title": "2.51 - Relatorio de Conferencia de Baixas",
+    "category": "financeiro",
+    "content": "Detalha os pagamentos (baixas) do financeiro, funcionando tanto a pagar ou a receber, podendo quebrar por tipo de recebimento."
+  },
+  {
+    "id": "14",
+    "title": "3.3 - Listagem de Produtos",
+    "category": "estoque",
+    "content": "Listagem dos produtos, por filtros de grupo/subgrupo, fornecedor, fabricante e unidade, permitindo visualizar os codigos de pesquisa e estoque atual dos itens."
+  },
+  {
+    "id": "15",
+    "title": "3.14 - Listagem de Produtos por Ajuste",
+    "category": "estoque",
+    "content": "Lista todos os ajustes (por tipo), permitindo visualizar os itens, se marcar a opcao adequada."
+  },
+  {
+    "id": "16",
+    "title": "3.24 - Ficha Kardex",
+    "category": "estoque",
+    "content": "Lista por periodo toda movimentacao do item (fiscal e nao fiscal), lhe dando todo o historico e seu saldo."
+  },
+  {
+    "id": "17",
+    "title": "3.32 - Tabela de Preco por Grupo e Subgrupo",
+    "category": "estoque",
+    "content": "Listagem dos produtos, por filtros de fornecedor, grupo e subgrupo, permitindo visualizar os codigos de pesquisa, precos e estoque atual dos itens, dando a possibilidade de exportar para EXCEL.\n\nObs: Esse relatorio sugere o estoque, levando em consideracao o estoque reservado (PRODFILHO.ESTOQANALISE)"
+  },
+  {
+    "id": "18",
+    "title": "5.1 - Notas Fiscais Emitidas (Compras)",
+    "category": "compras",
+    "content": "Filtra todas as notas de compra (Aquisicoes por terceiros) por data de emissao ou de entrada, dando opcao de pesquisar por status e por empresa.\n\nModelos disponiveis:\n- Modelo 1: Impressao Matricial\n- Modelo 2: Impressao no A4 e podendo filtrar o cliente\n- Modelo 3: Impressao no A4"
+  },
+  {
+    "id": "19",
+    "title": "6.8 - Exercicio para Inventario",
+    "category": "gerenciais",
+    "content": "Relatorio que alimenta o saldo fiscal no sistema, indicado para contabilidade como Inventario."
+  },
+  {
+    "id": "20",
+    "title": "6.19 - CFOPs por Notas",
+    "category": "gerenciais",
+    "content": "Relatorio do faturamento sintetico por CFOP dos itens (Apenas as saidas fiscais)."
+  },
+  {
+    "id": "21",
+    "title": "6.42 - Kardex de Preco do Produto",
+    "category": "gerenciais",
+    "content": "Lista todo historico da mudanca dos precos do item no periodo desejado, por tabela de preco.\n\nObs: Pra este relatorio funcionar, tem que marcar um parametro dinamico: ROTINA DE PRECO"
+  },
+  {
+    "id": "22",
+    "title": "7.6 - Clientes por Vendedor",
+    "category": "clientes",
+    "content": "Listagem dos clientes, lhe dando varios filtros, exemplo por vendedor, por Clientes, Cidades e etc."
+  }
+]
