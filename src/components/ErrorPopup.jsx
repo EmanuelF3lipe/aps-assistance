@@ -2,7 +2,7 @@ import { useState, useEffect, useRef } from 'react'
 import { api } from '../services/api'
 import { FiX, FiEdit2, FiTag, FiPaperclip, FiTrash2, FiCopy, FiFolder, FiPlus } from 'react-icons/fi'
 
-export default function ErrorPopup({ file, onClose, onEdit }) {
+export default function ErrorPopup({ file, onClose, onEdit, onMove, folders }) {
   const [fadeOut, setFadeOut] = useState(false)
   const [content, setContent] = useState('')
   const [tags, setTags] = useState([])
@@ -148,9 +148,13 @@ export default function ErrorPopup({ file, onClose, onEdit }) {
 
   const handleMove = async (targetFolder) => {
     if (!targetFolder || targetFolder === file.folder) return
-    const filename = file.filename || file.name + '.md'
-    await api.moveFile(file.folder, filename, targetFolder)
-    handleClose()
+    if (onMove) {
+      onMove(targetFolder)
+    } else {
+      const filename = file.filename || file.name + '.md'
+      await api.moveFile(file.folder, filename, targetFolder)
+      handleClose()
+    }
   }
 
   return (
@@ -187,6 +191,12 @@ export default function ErrorPopup({ file, onClose, onEdit }) {
                 </button>
                 <button onClick={handleCopy} className="btn-icon" title="Copiar">
                   <FiCopy size={14} />
+                </button>
+                <button onClick={() => {
+                  const target = prompt('Mover para qual pasta?\n\nPastas: ' + (folders || []).map(f => f.name || f).join(', '))
+                  if (target && target !== file.folder) handleMove(target)
+                }} className="btn-icon" title="Mover">
+                  <FiFolder size={14} />
                 </button>
                 <button onClick={() => setIsEditing(true)} className="btn-edit">
                   <FiEdit2 size={14} /> Editar

@@ -327,7 +327,7 @@ export default function App() {
         <AdvancedSearchPanel onSearch={handleAdvancedSearch} onClose={() => setShowAdvancedSearch(false)} />
       )}
       {errorPopup.show && (
-        <ErrorPopup file={errorPopup.file} onClose={handleCloseErrorPopup} />
+        <ErrorPopup file={errorPopup.file} onClose={handleCloseErrorPopup} onMove={(target) => { handleMoveFile(target); handleCloseErrorPopup() }} folders={folders} />
       )}
     </div>
   )
