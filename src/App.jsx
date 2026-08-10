@@ -357,6 +357,10 @@ export default function App() {
             onSortChange={setSortBy}
             selectedFiles={selectedFiles}
             onSelectBatch={setSelectedFiles}
+            onExportCSV={handleExportCSV}
+            onBatchDelete={handleBatchDelete}
+            onBatchMove={handleBatchMove}
+            folders={folders}
           />
 
           <div className="content-panel">
