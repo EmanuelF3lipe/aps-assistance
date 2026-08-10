@@ -12,6 +12,7 @@ const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 
 const BOT_CONFIG_FILE = path.join(__dirname, '..', 'bot-config.json');
+const DIARY_FILE = path.join(__dirname, '..', 'diary.json');
 
 function loadBotConfig() {
   if (fs.existsSync(BOT_CONFIG_FILE)) {
@@ -583,6 +584,73 @@ app.delete('/api/reports/:id', (req, res) => {
   let reports = loadReports();
   reports = reports.filter(r => r.id !== id);
   saveReports(reports);
+  io.emit('data-changed');
+  res.json({ success: true });
+});
+
+// Diary CRUD
+function loadDiary() {
+  if (!fs.existsSync(DIARY_FILE)) return [];
+  try { return JSON.parse(fs.readFileSync(DIARY_FILE, 'utf8')); } catch (e) { return []; }
+}
+function saveDiary(entries) {
+  fs.writeFileSync(DIARY_FILE, JSON.stringify(entries, null, 2), 'utf8');
+}
+
+app.get('/api/diary', (req, res) => {
+  const { date, search } = req.query;
+  let entries = loadDiary();
+  if (date) entries = entries.filter(e => e.date === date);
+  if (search) {
+    const q = search.toLowerCase();
+    entries = entries.filter(e => e.content.toLowerCase().includes(q) || e.title.toLowerCase().includes(q) || (e.author || '').toLowerCase().includes(q));
+  }
+  entries.sort((a, b) => new Date(b.createdAt) - new Date(a.createdAt));
+  res.json(entries);
+});
+
+app.post('/api/diary', (req, res) => {
+  const { title, content, category, priority, author, shift } = req.body;
+  if (!title || !content) return res.status(400).json({ error: 'Titulo e conteudo obrigatorios' });
+  const entries = loadDiary();
+  const entry = {
+    id: Date.now().toString(),
+    title,
+    content,
+    category: category || 'ocorrencia',
+    priority: priority || 'normal',
+    author: author || 'Anonimo',
+    shift: shift || '',
+    date: new Date().toLocaleDateString('pt-BR'),
+    createdAt: new Date().toISOString(),
+    resolved: false
+  };
+  entries.push(entry);
+  saveDiary(entries);
+  io.emit('data-changed');
+  res.json(entry);
+});
+
+app.put('/api/diary/:id', (req, res) => {
+  const { id } = req.params;
+  const { resolved, content, priority } = req.body;
+  const entries = loadDiary();
+  const idx = entries.findIndex(e => e.id === id);
+  if (idx === -1) return res.status(404).json({ error: 'Entrada nao encontrada' });
+  if (resolved !== undefined) entries[idx].resolved = resolved;
+  if (content !== undefined) entries[idx].content = content;
+  if (priority !== undefined) entries[idx].priority = priority;
+  entries[idx].updatedAt = new Date().toISOString();
+  saveDiary(entries);
+  io.emit('data-changed');
+  res.json(entries[idx]);
+});
+
+app.delete('/api/diary/:id', (req, res) => {
+  const { id } = req.params;
+  let entries = loadDiary();
+  entries = entries.filter(e => e.id !== id);
+  saveDiary(entries);
   io.emit('data-changed');
   res.json({ success: true });
 });

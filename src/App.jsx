@@ -14,6 +14,7 @@ import TrashPanel from './components/TrashPanel'
 import TagsPanel from './components/TagsPanel'
 import RelatoriosPanel from './components/RelatoriosPanel'
 import AdvancedSearchPanel from './components/AdvancedSearchPanel'
+import DiarioPanel from './components/DiarioPanel'
 import SplashScreen from './components/SplashScreen'
 import ErrorPopup from './components/ErrorPopup'
 import { FiX, FiCommand } from 'react-icons/fi'
@@ -38,6 +39,7 @@ export default function App() {
   const [sidebarOpen, setSidebarOpen] = useState(false)
   const [showShortcuts, setShowShortcuts] = useState(false)
   const [sortBy, setSortBy] = useState('name')
+  const [currentModule, setCurrentModule] = useState(null)
   const [selectedFiles, setSelectedFiles] = useState([])
 
   useEffect(() => {
@@ -294,7 +296,7 @@ export default function App() {
   }, [errorPopup.show, showAdvancedSearch, showShortcuts, handleCloseErrorPopup])
 
   if (showSplash) {
-    return <SplashScreen onEnter={() => setShowSplash(false)} />
+    return <SplashScreen onEnter={(moduleId) => { setCurrentModule(moduleId); setShowSplash(false) }} />
   }
 
   return (
@@ -319,7 +321,9 @@ export default function App() {
 
       {sidebarOpen && <div className="sidebar-overlay active" onClick={() => setSidebarOpen(false)} />}
 
-      {showTrash ? (
+      {currentModule === 'diario' ? (
+        <div className="dashboard-full"><DiarioPanel /></div>
+      ) : showTrash ? (
         <div className="dashboard-full">
           <TrashPanel
             onRestore={handleRestoreFromTrash}

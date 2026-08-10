@@ -266,5 +266,37 @@ export const api = {
   async stopBot() {
     const res = await fetch(`${API_BASE}/bot-stop`, { method: 'POST' });
     return res.json();
+  },
+
+  // Diary
+  async getDiary(filters = {}) {
+    const params = new URLSearchParams();
+    if (filters.date) params.append('date', filters.date);
+    if (filters.search) params.append('search', filters.search);
+    const res = await fetch(`${API_BASE}/diary?${params.toString()}`);
+    return res.json();
+  },
+
+  async createDiaryEntry(entry) {
+    const res = await fetch(`${API_BASE}/diary`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(entry)
+    });
+    return res.json();
+  },
+
+  async updateDiaryEntry(id, data) {
+    const res = await fetch(`${API_BASE}/diary/${id}`, {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(data)
+    });
+    return res.json();
+  },
+
+  async deleteDiaryEntry(id) {
+    const res = await fetch(`${API_BASE}/diary/${id}`, { method: 'DELETE' });
+    return res.json();
   }
 };
