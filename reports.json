@@ -130,5 +130,11 @@
     "title": "7.6 - Clientes por Vendedor",
     "category": "clientes",
     "content": "Listagem dos clientes, lhe dando varios filtros, exemplo por vendedor, por Clientes, Cidades e etc."
+  },
+  {
+    "id": "1785761335784",
+    "title": "1.41 - Venda por forma de pagamento",
+    "category": "vendas",
+    "content": "Neste relatorio é apresentado todas as vendas filtrado por tipo de pagamento"
   }
 ]

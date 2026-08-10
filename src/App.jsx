@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback } from 'react'
+import { useState, useEffect, useCallback, useMemo } from 'react'
 import { io } from 'socket.io-client'
 import { api } from './services/api'
 import Header from './components/Header'
@@ -16,6 +16,7 @@ import RelatoriosPanel from './components/RelatoriosPanel'
 import AdvancedSearchPanel from './components/AdvancedSearchPanel'
 import SplashScreen from './components/SplashScreen'
 import ErrorPopup from './components/ErrorPopup'
+import { FiX, FiCommand } from 'react-icons/fi'
 
 export default function App() {
   const [folders, setFolders] = useState([])
@@ -33,6 +34,24 @@ export default function App() {
   const [folderRefreshTrigger, setFolderRefreshTrigger] = useState(0)
   const [showAdvancedSearch, setShowAdvancedSearch] = useState(false)
   const [errorPopup, setErrorPopup] = useState({ show: false, file: null })
+  const [theme, setTheme] = useState(() => localStorage.getItem('aps-theme') || 'dark')
+  const [sidebarOpen, setSidebarOpen] = useState(false)
+  const [showShortcuts, setShowShortcuts] = useState(false)
+  const [sortBy, setSortBy] = useState('name')
+  const [selectedFiles, setSelectedFiles] = useState([])
+
+  useEffect(() => {
+    document.documentElement.setAttribute('data-theme', theme)
+    localStorage.setItem('aps-theme', theme)
+  }, [theme])
+
+  const sortedFiles = useMemo(() => {
+    const arr = [...files]
+    if (sortBy === 'name') arr.sort((a, b) => (a.name || '').localeCompare(b.name || ''))
+    else if (sortBy === 'folder') arr.sort((a, b) => (a.folder || '').localeCompare(b.folder || ''))
+    else if (sortBy === 'recent') arr.sort((a, b) => (b.modified || '').localeCompare(a.modified || ''))
+    return arr
+  }, [files, sortBy])
 
   const showToast = useCallback((message, type = 'success') => {
     setToast({ show: true, message, type })
@@ -59,7 +78,9 @@ export default function App() {
     setMainView('erros')
     setShowTrash(false)
     setShowTags(false)
+    setSelectedFiles([])
     await loadFiles(folder)
+    setSidebarOpen(false)
   }, [loadFiles])
 
   const handleErrorPopup = useCallback(async (file) => {
@@ -110,14 +131,12 @@ export default function App() {
     if (filters.query) parts.push(`"${filters.query}"`)
     if (filters.folder) parts.push(filters.folder)
     if (filters.tags) parts.push(`tags: ${filters.tags}`)
-    if (filters.dateFrom || filters.dateTo) parts.push(`${filters.dateFrom || '...'} até ${filters.dateTo || '...'}`)
-
+    if (filters.dateFrom || filters.dateTo) parts.push(`${filters.dateFrom || '...'} ate ${filters.dateTo || '...'}`)
     setMainView('erros')
     setShowTrash(false)
     setShowTags(false)
     setShowAdvancedSearch(false)
-    setCurrentFolder(`🔍 Avançada: ${parts.join(', ') || 'Todos'}`)
-
+    setCurrentFolder(`🔍 Avancada: ${parts.join(', ') || 'Todos'}`)
     const results = await api.advancedSearch(filters)
     setFiles(results.map(r => ({ ...r, name: r.filename.replace('.md', '') })))
   }, [])
@@ -167,9 +186,9 @@ export default function App() {
   }, [selectedFolderForRename, loadFolders, showToast])
 
   const handleDeleteFolder = useCallback(async (folderPath) => {
-    if (!confirm(`Excluir a pasta "${folderPath}"? Os arquivos serao movidos para "Erros Nao Catalogados".`)) return
+    if (!confirm(`Excluir a pasta "${folderPath}"? Arquivos serao movidos para lixeira.`)) return
     const result = await api.deleteFolder(folderPath)
-    showToast(result.movedFiles > 0 ? `Pasta excluida! ${result.movedFiles} arquivo(s) movido(s) para lixo` : 'Pasta excluida!')
+    showToast(result.movedFiles > 0 ? `Pasta excluida! ${result.movedFiles} arquivo(s) movido(s)` : 'Pasta excluida!')
     await loadFolders()
   }, [loadFolders, showToast])
 
@@ -184,13 +203,13 @@ export default function App() {
   }, [loadFolders, loadFiles, currentFolder, mainView, showToast])
 
   const handleDeleteFromTrash = useCallback(async (filename) => {
-    if (!confirm('Excluir permanentemente este arquivo?')) return
+    if (!confirm('Excluir permanentemente?')) return
     await api.deleteFromTrash(filename)
     showToast('Excluido permanentemente!')
   }, [showToast])
 
   const handleEmptyTrash = useCallback(async () => {
-    if (!confirm('Esvaziar a lixeira? Todos os arquivos serao excluidos permanentemente.')) return
+    if (!confirm('Esvaziar a lixeira?')) return
     await api.emptyTrash()
     showToast('Lixeira esvaziada!')
   }, [showToast])
@@ -206,6 +225,41 @@ export default function App() {
     handleCloseErrorPopup()
     showToast('Arquivo movido!')
   }, [currentFolder, errorPopup.file, loadFiles, loadFolders, handleCloseErrorPopup, showToast])
+
+  const handleExportCSV = useCallback(() => {
+    const data = files.map(f => `${f.name};${f.folder}`).join('\n')
+    const blob = new Blob([`Nome;Pasta\n${data}`], { type: 'text/csv;charset=utf-8;' })
+    const url = URL.createObjectURL(blob)
+    const a = document.createElement('a')
+    a.href = url
+    a.download = `erros_${currentFolder || 'todos'}.csv`
+    a.click()
+    URL.revokeObjectURL(url)
+    showToast('CSV exportado!')
+  }, [files, currentFolder, showToast])
+
+  const handleBatchDelete = useCallback(async () => {
+    if (!confirm(`Excluir ${selectedFiles.length} erro(s)?`)) return
+    for (const f of selectedFiles) {
+      await api.deleteFile(f.folder, f.filename || f.name + '.md')
+    }
+    setSelectedFiles([])
+    await loadFiles(currentFolder)
+    await loadFolders()
+    showToast(`${selectedFiles.length} arquivo(s) excluido(s)!`)
+  }, [selectedFiles, currentFolder, loadFiles, loadFolders, showToast])
+
+  const handleBatchMove = useCallback(async (targetFolder) => {
+    if (!targetFolder) return
+    for (const f of selectedFiles) {
+      await api.moveFile(f.folder, f.filename || f.name + '.md', targetFolder)
+    }
+    setSelectedFiles([])
+    await loadFiles(currentFolder)
+    await loadFolders()
+    setFolderRefreshTrigger(prev => prev + 1)
+    showToast(`${selectedFiles.length} arquivo(s) movido(s)!`)
+  }, [selectedFiles, currentFolder, loadFiles, loadFolders, showToast])
 
   useEffect(() => {
     loadFolders()
@@ -226,18 +280,18 @@ export default function App() {
 
   useEffect(() => {
     const handleKeyDown = (e) => {
-      if (e.ctrlKey && e.key === 'k') {
-        e.preventDefault()
-        document.getElementById('searchInput')?.focus()
+      if (e.ctrlKey && e.key === 'k') { e.preventDefault(); document.getElementById('searchInput')?.focus() }
+      if (e.ctrlKey && e.key === 'n') { e.preventDefault(); setModals(prev => ({ ...prev, newFile: true })) }
+      if (e.key === 'Escape') {
+        if (errorPopup.show) handleCloseErrorPopup()
+        else if (showAdvancedSearch) setShowAdvancedSearch(false)
+        else if (showShortcuts) setShowShortcuts(false)
       }
-      if (e.ctrlKey && e.key === 'n') {
-        e.preventDefault()
-        setModals(prev => ({ ...prev, newFile: true }))
-      }
+      if (e.ctrlKey && e.key === '/') { e.preventDefault(); setShowShortcuts(true) }
     }
     window.addEventListener('keydown', handleKeyDown)
     return () => window.removeEventListener('keydown', handleKeyDown)
-  }, [])
+  }, [errorPopup.show, showAdvancedSearch, showShortcuts, handleCloseErrorPopup])
 
   if (showSplash) {
     return <SplashScreen onEnter={() => setShowSplash(false)} />
@@ -257,7 +311,13 @@ export default function App() {
         onShowDashboard={() => { setMainView('dashboard'); setShowTags(false); setShowTrash(false) }}
         onSearchByTag={(tag) => { setSearchQuery(tag); handleSearch(tag); setShowTags(false) }}
         onShowAdvancedSearch={() => setShowAdvancedSearch(true)}
+        onToggleTheme={() => setTheme(t => t === 'dark' ? 'light' : 'dark')}
+        theme={theme}
+        onToggleSidebar={() => setSidebarOpen(o => !o)}
+        onShowShortcuts={() => setShowShortcuts(true)}
       />
+
+      {sidebarOpen && <div className="sidebar-overlay active" onClick={() => setSidebarOpen(false)} />}
 
       {showTrash ? (
         <div className="dashboard-full">
@@ -283,15 +343,20 @@ export default function App() {
             onShowTrash={() => setShowTrash(true)}
             showTrash={showTrash}
             refreshTrigger={folderRefreshTrigger}
+            className={sidebarOpen ? 'open' : ''}
           />
 
           <FilePanel
             currentFolder={currentFolder}
-            files={files}
+            files={sortedFiles}
             onSelectFile={handleErrorPopup}
             favorites={favorites}
             onToggleFavorite={handleToggleFavorite}
             onNewFile={() => setModals(prev => ({ ...prev, newFile: true }))}
+            sortBy={sortBy}
+            onSortChange={setSortBy}
+            selectedFiles={selectedFiles}
+            onSelectBatch={setSelectedFiles}
           />
 
           <div className="content-panel">
@@ -328,6 +393,21 @@ export default function App() {
       )}
       {errorPopup.show && (
         <ErrorPopup file={errorPopup.file} onClose={handleCloseErrorPopup} onMove={(target) => { handleMoveFile(target); handleCloseErrorPopup() }} folders={folders} />
+      )}
+
+      {showShortcuts && (
+        <div className="shortcuts-modal" onClick={() => setShowShortcuts(false)}>
+          <div className="shortcuts-content" onClick={e => e.stopPropagation()}>
+            <h2><FiCommand size={20} /> Atalhos de Teclado</h2>
+            <div className="shortcut-row"><span className="shortcut-desc">Buscar</span><span className="shortcut-key">Ctrl + K</span></div>
+            <div className="shortcut-row"><span className="shortcut-desc">Novo erro</span><span className="shortcut-key">Ctrl + N</span></div>
+            <div className="shortcut-row"><span className="shortcut-desc">Atalhos</span><span className="shortcut-key">Ctrl + /</span></div>
+            <div className="shortcut-row"><span className="shortcut-desc">Fechar popup</span><span className="shortcut-key">Esc</span></div>
+            <div style={{ marginTop: 16, textAlign: 'right' }}>
+              <button className="secondary" onClick={() => setShowShortcuts(false)}><FiX size={14} /> Fechar</button>
+            </div>
+          </div>
+        </div>
       )}
     </div>
   )

@@ -14,7 +14,8 @@ export default function Sidebar({
   onToggleFavorite,
   onShowTrash,
   showTrash,
-  refreshTrigger
+  refreshTrigger,
+  className
 }) {
   const [folderCounts, setFolderCounts] = useState({})
 
@@ -31,7 +32,7 @@ export default function Sidebar({
   }, [folders, refreshTrigger])
 
   return (
-    <aside className="sidebar">
+    <aside className={`sidebar ${className || ''}`}>
       <div className="sidebar-section">
         <h3><FiStar size={12} /> Favoritos</h3>
         {favorites.length === 0 ? (
