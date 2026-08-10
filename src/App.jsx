@@ -300,8 +300,9 @@ export default function App() {
   }
 
   return (
-    <div className="app">
+    <div className="app" data-module={currentModule || 'aps'}>
       <Header
+        currentModule={currentModule}
         searchQuery={searchQuery}
         onSearch={handleSearch}
         onClearSearch={handleClearSearch}

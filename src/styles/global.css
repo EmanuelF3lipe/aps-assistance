@@ -2363,3 +2363,154 @@ button.success:hover {
   border-color: var(--accent-blue);
   background: rgba(59, 130, 246, 0.08);
 }
+
+/* ============================================
+   DIARIO DE TURNO - GREEN MILITARY THEME
+   ============================================ */
+
+[data-module="diario"] {
+  --accent: #4a7c59;
+  --accent-blue: #4a7c59;
+  --accent-glow: rgba(74, 124, 89, 0.4);
+  --accent-red: #c0392b;
+  --accent-green: #4a7c59;
+}
+
+[data-module="diario"] header {
+  background: linear-gradient(135deg, #0d1a0f 0%, #1a2e1f 50%, #0d1a0f 100%);
+  border-bottom: 1px solid #2d5a3d40;
+}
+
+[data-module="diario"] .logo-icon {
+  background: linear-gradient(135deg, #2d5a3d, #4a7c59) !important;
+}
+
+[data-module="diario"] .header-actions button:not(.theme-toggle):not(.mobile-menu-btn) {
+  background: transparent;
+  border: 1px solid #2d5a3d;
+  color: #6db57e;
+}
+
+[data-module="diario"] .header-actions button:not(.theme-toggle):not(.mobile-menu-btn):hover {
+  background: #2d5a3d30;
+  border-color: #4a7c59;
+  color: #8fd4a0;
+}
+
+[data-module="diario"] .header-actions button.active-view-btn {
+  background: #2d5a3d;
+  border-color: #4a7c59;
+  color: #fff;
+}
+
+[data-module="diario"] .theme-toggle {
+  background: transparent;
+  border: 1px solid #2d5a3d;
+  color: #6db57e;
+}
+
+[data-module="diario"] .theme-toggle:hover {
+  background: #2d5a3d30;
+  border-color: #4a7c59;
+}
+
+[data-module="diario"] .dashboard {
+  background: linear-gradient(180deg, #0a120c 0%, #0f1a12 100%);
+}
+
+[data-module="diario"] .dashboard-full {
+  background: linear-gradient(180deg, #0a120c 0%, #0f1a12 100%);
+}
+
+[data-module="diario"] button {
+  background: var(--bg-card);
+  border: 1px solid #2d5a3d;
+  color: var(--text-primary);
+}
+
+[data-module="diario"] button:hover {
+  border-color: #4a7c59;
+}
+
+[data-module="diario"] button.success {
+  background: linear-gradient(135deg, #2d5a3d, #4a7c59);
+  border-color: #4a7c59;
+  color: #fff;
+}
+
+[data-module="diario"] button.success:hover {
+  background: linear-gradient(135deg, #3a6e4c, #5a9469);
+  border-color: #5a9469;
+}
+
+[data-module="diario"] button.secondary {
+  background: var(--bg-tertiary);
+  border: 1px solid #2d5a3d;
+  color: #6db57e;
+}
+
+[data-module="diario"] button.secondary:hover {
+  border-color: #4a7c59;
+  color: #8fd4a0;
+}
+
+[data-module="diario"] input,
+[data-module="diario"] select,
+[data-module="diario"] textarea {
+  border-color: #2d5a3d;
+}
+
+[data-module="diario"] input:focus,
+[data-module="diario"] select:focus,
+[data-module="diario"] textarea:focus {
+  border-color: #4a7c59;
+  box-shadow: 0 0 0 2px rgba(74, 124, 89, 0.2);
+}
+
+[data-module="diario"] .empty-state {
+  background: transparent;
+  border-color: #2d5a3d;
+}
+
+[data-module="diario"] .sort-bar button.active {
+  background: #2d5a3d;
+  border-color: #4a7c59;
+  color: #fff;
+}
+
+[data-module="diario"] .file-card {
+  border-color: #2d5a3d;
+}
+
+[data-module="diario"] .file-card:hover {
+  border-color: #4a7c59;
+}
+
+[data-module="diario"] .file-card.selected {
+  border-color: #4a7c59;
+  background: rgba(74, 124, 89, 0.08);
+}
+
+[data-module="diario"] .shortcut-modal,
+[data-module="diario"] .modal-content {
+  background: #0f1a12;
+  border-color: #2d5a3d;
+}
+
+[data-module="diario"] .toast {
+  border-color: #2d5a3d;
+}
+
+[data-module="diario"] .toast.success {
+  border-left: 4px solid #4a7c59;
+}
+
+[data-module="diario"] .toast.error {
+  border-left: 4px solid #c0392b;
+}
+
+/* Diario entry animations */
+@keyframes diarioSlideIn {
+  from { opacity: 0; transform: translateY(8px); }
+  to { opacity: 1; transform: translateY(0); }
+}
