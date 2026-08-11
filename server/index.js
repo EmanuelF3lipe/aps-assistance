@@ -897,5 +897,3 @@ if (process.stdin.isTTY) {
   });
 }
 
-  console.log(`\n   Acesse de outra maquina: http://<IP_DA_REDE>:${PORT}\n`);
-});
