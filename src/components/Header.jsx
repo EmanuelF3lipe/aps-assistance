@@ -45,7 +45,7 @@ export default function Header({ currentModule, searchQuery, onSearch, onClearSe
             {isDiario ? 'Diario de Turno' : 'APS Assistance'}
             <span>{isDiario ? 'Registro de Ocorrencias' : 'Catalogo de Erros e Solucoes'}</span>
           </h1>
-        </div>
+        </button>
       </div>
 
       {!isDiario && (
