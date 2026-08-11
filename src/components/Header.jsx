@@ -1,6 +1,6 @@
 import { FiSearch, FiPlus, FiTag, FiFileText, FiGrid, FiList, FiFilter, FiMenu, FiSun, FiMoon, FiCommand, FiBook, FiArrowLeft } from 'react-icons/fi'
 
-export default function Header({ currentModule, searchQuery, onSearch, onClearSearch, onNewFile, onShowDashboard, onShowTags, onShowRelatorios, mainView, onSwitchView, onShowAdvancedSearch, onToggleTheme, theme, onToggleSidebar, onShowShortcuts }) {
+export default function Header({ currentModule, searchQuery, onSearch, onClearSearch, onNewFile, onShowDashboard, onShowTags, onShowRelatorios, mainView, onSwitchView, onShowAdvancedSearch, onToggleTheme, theme, onToggleSidebar, onShowShortcuts, onGoHome }) {
 
   const handleInputChange = (e) => {
     const value = e.target.value
@@ -20,7 +20,7 @@ export default function Header({ currentModule, searchQuery, onSearch, onClearSe
         </button>
         {isDiario && (
           <button
-            onClick={() => window.location.reload()}
+            onClick={onGoHome}
             style={{
               background: 'var(--bg-card)',
               border: '1px solid var(--border-color)',
@@ -37,7 +37,7 @@ export default function Header({ currentModule, searchQuery, onSearch, onClearSe
             <FiArrowLeft size={14} /> Voltar
           </button>
         )}
-        <div className="logo">
+        <button onClick={onGoHome} className="logo" style={{ background: 'none', border: 'none', cursor: 'pointer', padding: 0 }}>
           <div className="logo-icon" style={isDiario ? { background: 'linear-gradient(135deg, #2d5a3d, #4a7c59)' } : {}}>
             {isDiario ? <FiBook size={20} /> : <FiSearch size={20} />}
           </div>

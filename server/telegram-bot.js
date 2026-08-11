@@ -269,7 +269,7 @@ export function initBot(token) {
       const now = new Date();
       const date = now.toLocaleDateString('pt-BR');
       const time = now.toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' });
-      const content = '# ' + name + '\n\n**Criado em:** ' + date + ' ' + time + '\n**Sistema:** \n**Contexto / Quando acontece:** \n\n## Resolucao (passo a passo)\n\n1. \n2. \n3. \n\n## Observacao\n\n\n\n## Tags\n\n- \n\n---\n\n' + text;
+      const content = '# ' + name + '\n\n**Criado em:** ' + date + ' ' + time + '\n**Sistema:** \n**Contexto / Quando acontece:** \n\n## Resolucao (passo a passo)\n\n' + text + '\n\n## Observacao\n\n\n\n## Tags\n\n- \n\n---\n';
       createFile(folder, name, content);
       userSessions.delete(cid);
       bot.sendMessage(cid, '*✅ Erro criado!*\n\n📝 ' + name + '\n📂 ' + folder, {
