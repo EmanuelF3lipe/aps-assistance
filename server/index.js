@@ -8,17 +8,8 @@ import { createServer } from 'http';
 import { Server } from 'socket.io';
 import { initBot, sendNotification, stopBot } from './telegram-bot.js';
 
-process.on('SIGINT', () => {
-  console.log('\n   Encerrando...');
-  sendNotification('🔴 *Servidor OFFLINE*');
-  setTimeout(() => { stopBot(); process.exit(0); }, 500);
-});
-
-process.on('SIGTERM', () => {
-  console.log('\n   Encerrando...');
-  sendNotification('🔴 *Servidor OFFLINE*');
-  setTimeout(() => { stopBot(); process.exit(0); }, 500);
-});
+process.on('SIGINT', () => handleQuit());
+process.on('SIGTERM', () => handleQuit());
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -843,54 +834,68 @@ app.post('/api/bot-stop', (req, res) => {
   res.json({ success: true, message: 'Bot parado' });
 });
 
-httpServer.listen(PORT, '0.0.0.0', () => {
-  const now = new Date().toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit', second: '2-digit' });
+function startServer() {
+  httpServer.listen(PORT, '0.0.0.0', () => {
+    const now = new Date().toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit', second: '2-digit' });
 
-  console.log(`\n   ╔══════════════════════════════════════╗`);
-  console.log(`   ║     APS Assistance - ONLINE          ║`);
-  console.log(`   ╚══════════════════════════════════════╝`);
-  console.log(`\n   Local:   http://localhost:${PORT}`);
-  
-  const nets = os.networkInterfaces();
-  for (const name of Object.keys(nets)) {
-    for (const net of nets[name]) {
-      if (net.family === 'IPv4' && !net.internal) {
-        console.log(`   Rede:    http://${net.address}:${PORT}`);
+    console.log(`\n   ╔══════════════════════════════════════╗`);
+    console.log(`   ║     APS Assistance - ONLINE          ║`);
+    console.log(`   ╚══════════════════════════════════════╝`);
+    console.log(`\n   Local:   http://localhost:${PORT}`);
+    
+    const nets = os.networkInterfaces();
+    for (const name of Object.keys(nets)) {
+      for (const net of nets[name]) {
+        if (net.family === 'IPv4' && !net.internal) {
+          console.log(`   Rede:    http://${net.address}:${PORT}`);
+        }
       }
     }
-  }
 
-  const botConfig = loadBotConfig();
-  if (botConfig.token) {
-    initBot(botConfig.token);
-    console.log(`   Telegram: bot ativo`);
-    sendNotification('🟢 *Servidor ONLINE*\nHorario: ' + now);
-  } else {
-    console.log(`   Telegram: desativado (configure bot-config.json)`);
-  }
+    const botConfig = loadBotConfig();
+    if (botConfig.token) {
+      initBot(botConfig.token);
+      console.log(`   Telegram: bot ativo`);
+      sendNotification('🟢 *Servidor ONLINE*\nHorario: ' + now);
+    } else {
+      console.log(`   Telegram: desativado (configure bot-config.json)`);
+    }
 
-  console.log(`\n   ╔══════════════════════════════════════╗`);
-  console.log(`   ║  [R] Reiniciar Servidor              ║`);
-  console.log(`   ║  [Q] Sair                            ║`);
-  console.log(`   ╚══════════════════════════════════════╝\n`);
+    console.log(`\n   ╔══════════════════════════════════════╗`);
+    console.log(`   ║  [R] Reiniciar Servidor              ║`);
+    console.log(`   ║  [Q] Sair                            ║`);
+    console.log(`   ╚══════════════════════════════════════╝\n`);
+  });
+}
 
-  if (process.stdin.isTTY) {
-    process.stdin.setRawMode(true);
-    process.stdin.resume();
-    process.stdin.on('data', (key) => {
-      const k = key.toString().toLowerCase();
-      if (k === 'r') {
-        console.log('\n   Reiniciando servidor...');
-        sendNotification('🔄 *Servidor REINICIANDO*');
-        setTimeout(() => { stopBot(); process.exit(1); }, 500);
-      }
-      if (k === 'q' || k === '\u0003') {
-        console.log('\n   Encerrando servidor...');
-        sendNotification('🔴 *Servidor OFFLINE*');
-        setTimeout(() => { stopBot(); process.exit(0); }, 500);
-      }
+function handleRestart() {
+  console.log('\n   Reiniciando servidor...');
+  sendNotification('🔄 *Servidor REINICIANDO*');
+  setTimeout(() => {
+    stopBot();
+    httpServer.close(() => {
+      startServer();
     });
-  }
+  }, 500);
+}
+
+function handleQuit() {
+  console.log('\n   Encerrando servidor...');
+  sendNotification('🔴 *Servidor OFFLINE*');
+  setTimeout(() => { stopBot(); process.exit(0); }, 500);
+}
+
+startServer();
+
+if (process.stdin.isTTY) {
+  process.stdin.setRawMode(true);
+  process.stdin.resume();
+  process.stdin.on('data', (key) => {
+    const k = key.toString().toLowerCase();
+    if (k === 'r') handleRestart();
+    if (k === 'q' || k === '\u0003') handleQuit();
+  });
+}
 
   console.log(`\n   Acesse de outra maquina: http://<IP_DA_REDE>:${PORT}\n`);
 });
