@@ -17,7 +17,7 @@ import AdvancedSearchPanel from './components/AdvancedSearchPanel'
 import DiarioPanel from './components/DiarioPanel'
 import SplashScreen from './components/SplashScreen'
 import ErrorPopup from './components/ErrorPopup'
-import { FiX, FiCommand } from 'react-icons/fi'
+import { FiX, FiCommand, FiEdit } from 'react-icons/fi'
 
 export default function App() {
   const [folders, setFolders] = useState([])
@@ -95,7 +95,7 @@ export default function App() {
 
   const handleCloseErrorPopup = useCallback(async () => {
     setErrorPopup({ show: false, file: null })
-    if (currentFolder && !currentFolder.startsWith('🔍')) {
+    if (currentFolder && !currentFolder.startsWith('[search]')) {
       await loadFiles(currentFolder)
     }
     await loadFolders()
@@ -104,7 +104,7 @@ export default function App() {
   const handleSearch = useCallback(async (query) => {
     setSearchQuery(query)
     if (!query) {
-      if (currentFolder && !currentFolder.startsWith('🔍')) {
+      if (currentFolder && !currentFolder.startsWith('[search]')) {
         await loadFiles(currentFolder)
       } else {
         setFiles([])
@@ -115,14 +115,14 @@ export default function App() {
     setMainView('erros')
     setShowTrash(false)
     setShowTags(false)
-    setCurrentFolder(`🔍 "${query}"`)
+    setCurrentFolder(`[search] "${query}"`)
     const results = await api.search(query)
     setFiles(results.map(r => ({ ...r, name: r.filename.replace('.md', '') })))
   }, [currentFolder, loadFiles])
 
   const handleClearSearch = useCallback(() => {
     setSearchQuery('')
-    if (currentFolder && currentFolder.startsWith('🔍')) {
+    if (currentFolder && currentFolder.startsWith('[search]')) {
       setFiles([])
       setCurrentFolder('')
     }
@@ -138,7 +138,7 @@ export default function App() {
     setShowTrash(false)
     setShowTags(false)
     setShowAdvancedSearch(false)
-    setCurrentFolder(`🔍 Avancada: ${parts.join(', ') || 'Todos'}`)
+    setCurrentFolder(`[search] Avancada: ${parts.join(', ') || 'Todos'}`)
     const results = await api.advancedSearch(filters)
     setFiles(results.map(r => ({ ...r, name: r.filename.replace('.md', '') })))
   }, [])
@@ -198,7 +198,7 @@ export default function App() {
     await api.restoreFromTrash(filename)
     await loadFolders()
     setFolderRefreshTrigger(prev => prev + 1)
-    if (currentFolder && !currentFolder.startsWith('🔍') && mainView === 'erros') {
+    if (currentFolder && !currentFolder.startsWith('[search]') && mainView === 'erros') {
       await loadFiles(currentFolder)
     }
     showToast('Arquivo restaurado!')
@@ -273,7 +273,7 @@ export default function App() {
     socket.on('data-changed', () => {
       loadFolders()
       loadFavorites()
-      if (currentFolder && !currentFolder.startsWith('🔍') && mainView === 'erros') {
+      if (currentFolder && !currentFolder.startsWith('[search]') && mainView === 'erros') {
         loadFiles(currentFolder)
       }
     })
@@ -370,7 +370,7 @@ export default function App() {
 
           <div className="content-panel">
             <div className="empty-content-placeholder">
-              <span className="empty-content-icon">📝</span>
+              <span className="empty-content-icon"><FiEdit size={48} /></span>
               <p>Selecione um erro para visualizar</p>
             </div>
           </div>

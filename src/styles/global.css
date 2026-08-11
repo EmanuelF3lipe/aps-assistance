@@ -1011,10 +1011,10 @@ button.success:hover {
 
 .splash-content {
   display: flex;
-  flex-direction: row;
+  flex-direction: column;
   align-items: center;
   justify-content: center;
-  gap: 80px;
+  gap: 40px;
   animation: splashFadeIn 0.8s ease;
   z-index: 1;
   padding: 0 60px;
@@ -1060,19 +1060,6 @@ button.success:hover {
   letter-spacing: -1px;
   text-transform: uppercase;
   position: relative;
-}
-
-.splash-aps-main::before {
-  content: 'APS ASSISTANCE';
-  position: absolute;
-  top: 0;
-  left: 0;
-  background: linear-gradient(90deg, transparent 0%, rgba(255,255,255,0.9) 50%, transparent 100%);
-  background-size: 200% 100%;
-  -webkit-background-clip: text;
-  -webkit-text-fill-color: transparent;
-  background-clip: text;
-  animation: whiteSweep 1.8s ease-out forwards;
 }
 
 @keyframes whiteSweep {

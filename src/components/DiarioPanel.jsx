@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react'
 import { api } from '../services/api'
-import { FiPlus, FiCheck, FiClock, FiAlertTriangle, FiInfo, FiTrash2, FiSearch, FiCalendar, FiUser, FiChevronDown, FiChevronUp } from 'react-icons/fi'
+import { FiPlus, FiCheck, FiClock, FiAlertTriangle, FiInfo, FiTrash2, FiSearch, FiCalendar, FiUser, FiChevronDown, FiChevronUp, FiBook } from 'react-icons/fi'
 
 const CATEGORIES = [
   { value: 'ocorrencia', label: 'Ocorrencia', color: '#f59e0b', icon: FiAlertTriangle },
@@ -65,7 +65,7 @@ export default function DiarioPanel() {
     <div className="dashboard" style={{ '--accent': '#4a7c59' }}>
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '20px', flexWrap: 'wrap', gap: '10px' }}>
         <h2 style={{ margin: 0, display: 'flex', alignItems: 'center', gap: '10px' }}>
-          📓 Diario de Turno
+          <FiBook size={24} /> Diario de Turno
         </h2>
         <div style={{ display: 'flex', gap: '8px', alignItems: 'center', flexWrap: 'wrap' }}>
           <span style={{ color: 'var(--text-muted)', fontSize: '13px' }}>
@@ -227,7 +227,7 @@ export default function DiarioPanel() {
 
       {entries.length === 0 ? (
         <div className="empty-state" style={{ height: 'auto', padding: '48px' }}>
-          <span style={{ fontSize: '48px', opacity: 0.3 }}>📓</span>
+          <span style={{ fontSize: '48px', opacity: 0.3 }}><FiBook size={48} /></span>
           <p>Nenhuma entrada no diario</p>
           <p style={{ fontSize: '12px', marginTop: '8px', color: 'var(--text-muted)' }}>
             Clique em "Nova Entrada" para registrar uma ocorrencia
@@ -282,7 +282,7 @@ export default function DiarioPanel() {
                       </span>
                       {entry.shift && (
                         <span style={{ color: 'var(--text-muted)', fontSize: '11px' }}>
-                          🕐 {entry.shift}
+                          <FiClock size={12} /> {entry.shift}
                         </span>
                       )}
                       {entry.resolved && (
@@ -300,7 +300,7 @@ export default function DiarioPanel() {
                       </p>
                     )}
                     <div style={{ display: 'flex', gap: '12px', marginTop: '6px', fontSize: '11px', color: 'var(--text-muted)' }}>
-                      <span>📅 {entry.date}</span>
+                      <span><FiCalendar size={12} /> {entry.date}</span>
                       {entry.author && <span><FiUser size={10} /> {entry.author}</span>}
                     </div>
                   </div>

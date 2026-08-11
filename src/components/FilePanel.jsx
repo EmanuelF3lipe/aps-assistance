@@ -41,7 +41,7 @@ export default function FilePanel({
           <h2>{currentFolder || 'Selecione uma pasta'}</h2>
           <span className="file-count">{files.length} erro{files.length !== 1 ? 's' : ''}</span>
         </div>
-        {currentFolder && !currentFolder.startsWith('🔍') && (
+        {currentFolder && !currentFolder.startsWith('[search]') && (
           <div style={{ display: 'flex', gap: '6px' }}>
             <button className="new-error-btn" onClick={onNewFile}>
               <FiPlus size={14} /> Novo Erro
@@ -91,7 +91,7 @@ export default function FilePanel({
       {files.length === 0 ? (
         <div className="empty-state-vertical">
           <p>Nenhum erro encontrado</p>
-          {currentFolder && !currentFolder.startsWith('🔍') && (
+          {currentFolder && !currentFolder.startsWith('[search]') && (
             <button onClick={onNewFile} className="empty-new-btn">
               <FiPlus size={16} /> Criar primeiro erro
             </button>

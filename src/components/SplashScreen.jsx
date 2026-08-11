@@ -1,12 +1,12 @@
 import { useState } from 'react'
-import { FiArrowRight, FiBook, FiBookOpen } from 'react-icons/fi'
+import { FiArrowRight, FiTool, FiBook } from 'react-icons/fi'
 
 const MODULES = [
   {
     id: 'aps',
     name: 'APS ASSISTANCE',
     subtitle: 'Catalogo de erros e solucoes',
-    icon: '🔧',
+    icon: <FiTool size={28} />,
     accent: '#3b82f6',
     tagline: 'Registre, busque e resolva erros do dia a dia'
   },
@@ -14,7 +14,7 @@ const MODULES = [
     id: 'diario',
     name: 'DIARIO DE TURNO',
     subtitle: 'Registro de ocorrencias',
-    icon: '📓',
+    icon: <FiBook size={28} />,
     accent: '#4a7c59',
     tagline: 'Comunique ocorrencias entre turnos'
   }
@@ -86,7 +86,7 @@ export default function SplashScreen({ onEnter }) {
                 display: 'flex',
                 alignItems: 'center',
                 justifyContent: 'center',
-                fontSize: '28px'
+                color: mod.accent
               }}>
                 {mod.icon}
               </div>

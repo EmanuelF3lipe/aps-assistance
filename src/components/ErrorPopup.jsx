@@ -1,6 +1,6 @@
 import { useState, useEffect, useRef } from 'react'
 import { api } from '../services/api'
-import { FiX, FiEdit2, FiTag, FiPaperclip, FiTrash2, FiCopy, FiFolder, FiPlus } from 'react-icons/fi'
+import { FiX, FiEdit2, FiTag, FiPaperclip, FiTrash2, FiCopy, FiFolder, FiPlus, FiFile, FiFileText, FiFilm, FiMusic, FiPackage, FiBarChart2 } from 'react-icons/fi'
 
 export default function ErrorPopup({ file, onClose, onEdit, onMove, folders }) {
   const [fadeOut, setFadeOut] = useState(false)
@@ -140,10 +140,14 @@ export default function ErrorPopup({ file, onClose, onEdit, onMove, folders }) {
   const getFileIcon = (fileName) => {
     const ext = fileName.split('.').pop().toLowerCase()
     const icons = {
-      pdf: '📄', doc: '📝', docx: '📝', xls: '📊', xlsx: '📊',
-      zip: '📦', rar: '📦', txt: '📃', mp4: '🎬', mp3: '🎵'
+      pdf: <FiFile size={16} />,
+      doc: <FiFileText size={16} />, docx: <FiFileText size={16} />,
+      xls: <FiBarChart2 size={16} />, xlsx: <FiBarChart2 size={16} />,
+      zip: <FiPackage size={16} />, rar: <FiPackage size={16} />,
+      txt: <FiFileText size={16} />,
+      mp4: <FiFilm size={16} />, mp3: <FiMusic size={16} />
     }
-    return icons[ext] || '📎'
+    return icons[ext] || <FiPaperclip size={16} />
   }
 
   const handleMove = async (targetFolder) => {

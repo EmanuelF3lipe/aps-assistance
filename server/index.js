@@ -590,7 +590,10 @@ app.delete('/api/reports/:id', (req, res) => {
 
 // Diary CRUD
 function loadDiary() {
-  if (!fs.existsSync(DIARY_FILE)) return [];
+  if (!fs.existsSync(DIARY_FILE)) {
+    fs.writeFileSync(DIARY_FILE, '[]', 'utf8');
+    return [];
+  }
   try { return JSON.parse(fs.readFileSync(DIARY_FILE, 'utf8')); } catch (e) { return []; }
 }
 function saveDiary(entries) {
