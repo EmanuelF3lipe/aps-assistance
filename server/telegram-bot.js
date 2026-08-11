@@ -85,11 +85,11 @@ function buildPreview(content) {
   }
   let r = header.join('\n').replace(/[#*]/g, '').trim();
   const sol = sections['Resolucao (passo a passo)'] || sections['Resolução (passo a passo)'];
-  if (sol) { const t = sol.join('\n').replace(/[#*]/g, '').trim(); if (t) r += '\n\n📋 *Solução:*\n' + t; }
+  if (sol) { const t = sol.join('\n').replace(/[#*]/g, '').trim(); if (t) r += '\n\nSolucao:\n' + t; }
   const obs = sections['Observacao'] || sections['Observação'];
-  if (obs) { const t = obs.join('\n').replace(/[#*]/g, '').trim(); if (t) r += '\n\n💡 *Obs:* ' + t; }
+  if (obs) { const t = obs.join('\n').replace(/[#*]/g, '').trim(); if (t) r += '\n\nObs: ' + t; }
   const tags = getTags(content);
-  if (tags.length > 0) r += '\n\n🏷️ *Tags:* ' + tags.map(t => '`' + t + '`').join(' ');
+  if (tags.length > 0) r += '\n\nTags: ' + tags.map(t => '`' + t + '`').join(' ');
   return r.substring(0, 3000);
 }
 
@@ -98,12 +98,15 @@ const btn = (text, data) => ({ text, callback_data: data });
 
 export function initBot(token) {
   if (!token) { console.log('   Telegram Bot: desativado'); return null; }
-  if (bot) bot.stopPolling().catch(() => {});
+  if (bot) { try { bot.stopPolling(); } catch (e) {} }
   bot = new TelegramBot(token, { polling: true });
   chatId = null;
   console.log('   Telegram Bot: ativo');
 
-  function mainMenu(cid) {
+  bot.onText(/\/start(.*)/, (msg, match) => {
+    const cid = msg.chat.id;
+    chatId = cid;
+    userSessions.delete(cid);
     resetIndex();
     bot.sendMessage(cid, '*🤖 APS Assistance*\nEscolha uma opcao:', {
       parse_mode: 'Markdown',
@@ -112,43 +115,38 @@ export function initBot(token) {
         [btn('➕ Criar Erro', 'm_criar'), btn('🏷️ Tags', 'm_tags')],
         [btn('❓ Ajuda', 'm_ajuda')]
       ]}
-    });
-  }
+    }).catch(err => console.log('Erro /start:', err.message));
+  });
 
-  function showFile(cid, folder, name) {
-    const content = getFileContent(folder, name);
-    if (!content) return bot.sendMessage(cid, '❌ Erro nao encontrado.');
-    const preview = buildPreview(content);
-    const shortName = name.length > 40 ? name.substring(0, 37) + '...' : name;
-    bot.sendMessage(cid, '*📝 ' + shortName + '*\n📂 ' + folder + '\n\n' + preview, {
-      parse_mode: 'Markdown',
-      reply_markup: { inline_keyboard: [
-        [btn('📂 Ver na pasta', 'm_pastas')],
-        [btn('◀️ Voltar', 'm_menu'), btn('🏠 Menu', 'm_menu')]
-      ]}
-    });
-  }
+  bot.onText(/\/ajuda|\/help/, (msg) => {
+    const cid = msg.chat.id;
+    bot.sendMessage(cid, '*❓ Como usar:*\n\n📂 *Pastas* - Navegar pastas e erros\n🔍 *Buscar* - Buscar por palavra-chave\n➕ *Criar* - Criar novo erro\n🏷️ *Tags* - Ver erros por tag\n\nClique nos botoes para navegar!', { parse_mode: 'Markdown' });
+  });
 
-  function showFolderFiles(cid, folder) {
-    const files = getFiles(folder);
-    if (!files.length) return bot.sendMessage(cid, '📭 Pasta *' + folder + '* vazia.', { parse_mode: 'Markdown' });
-    resetIndex();
-    const buttons = files.map(f => [btn('📝 ' + (f.length > 45 ? f.substring(0, 42) + '...' : f), 'vf' + regId({ t: 'file', folder, name: f }))]);
-    buttons.push([btn('◀️ Voltar', 'm_pastas'), btn('🏠 Menu', 'm_menu')]);
-    bot.sendMessage(cid, '*📂 ' + folder + '* (' + files.length + ' erros):', {
-      parse_mode: 'Markdown', reply_markup: { inline_keyboard: buttons }
-    });
-  }
-
-  bot.onText(/\/start/, (msg) => { chatId = msg.chat.id; mainMenu(chatId); });
-  bot.onText(/\/ajudar|\/help/, (msg) => mainMenu(msg.chat.id));
+  bot.onText(/\/stop/, (msg) => {
+    const cid = msg.chat.id;
+    bot.sendMessage(cid, '🛑 Bot desativado. Para reativar, envie /start');
+    bot.stopPolling();
+    bot = null;
+  });
 
   bot.on('callback_query', (query) => {
     const cid = query.message.chat.id;
     const data = query.data;
-    bot.answerCallbackQuery(query.id);
+    bot.answerCallbackQuery(query.id).catch(() => {});
 
-    if (data === 'm_menu') return mainMenu(cid);
+    if (data === 'm_menu') {
+      resetIndex();
+      userSessions.delete(cid);
+      return bot.sendMessage(cid, '*🤖 APS Assistance*\nEscolha uma opcao:', {
+        parse_mode: 'Markdown',
+        reply_markup: { inline_keyboard: [
+          [btn('📂 Pastas', 'm_pastas'), btn('🔍 Buscar', 'm_buscar')],
+          [btn('➕ Criar Erro', 'm_criar'), btn('🏷️ Tags', 'm_tags')],
+          [btn('❓ Ajuda', 'm_ajuda')]
+        ]}
+      });
+    }
 
     if (data === 'm_pastas') {
       resetIndex();
@@ -197,9 +195,29 @@ export function initBot(token) {
       const id = parseInt(data.substring(2));
       const item = getData(id);
       if (!item) return bot.sendMessage(cid, '⚠️ Sessao expirada. Use /start');
-      if (item.t === 'folder') return showFolderFiles(cid, item.name);
-      if (item.t === 'file') return showFile(cid, item.folder, item.name);
-      if (item.t === 'search') return showFile(cid, item.folder, item.name);
+      if (item.t === 'folder') {
+        resetIndex();
+        const files = getFiles(item.name);
+        if (!files.length) return bot.sendMessage(cid, '📭 Pasta *' + item.name + '* vazia.', { parse_mode: 'Markdown' });
+        const buttons = files.map(f => [btn('📝 ' + (f.length > 45 ? f.substring(0, 42) + '...' : f), 'vf' + regId({ t: 'file', folder: item.name, name: f }))]);
+        buttons.push([btn('◀️ Voltar', 'm_pastas'), btn('🏠 Menu', 'm_menu')]);
+        bot.sendMessage(cid, '*📂 ' + item.name + '* (' + files.length + ' erros):', {
+          parse_mode: 'Markdown', reply_markup: { inline_keyboard: buttons }
+        });
+      }
+      if (item.t === 'file' || item.t === 'search') {
+        const content = getFileContent(item.folder, item.name);
+        if (!content) return bot.sendMessage(cid, '❌ Erro nao encontrado.');
+        const preview = buildPreview(content);
+        const shortName = item.name.length > 40 ? item.name.substring(0, 37) + '...' : item.name;
+        bot.sendMessage(cid, '*📝 ' + shortName + '*\n📂 ' + item.folder + '\n\n' + preview, {
+          parse_mode: 'Markdown',
+          reply_markup: { inline_keyboard: [
+            [btn('📂 Ver na pasta', 'm_pastas')],
+            [btn('◀️ Voltar', 'm_menu'), btn('🏠 Menu', 'm_menu')]
+          ]}
+        });
+      }
     }
 
     if (data.startsWith('vt')) {
@@ -233,7 +251,8 @@ export function initBot(token) {
   bot.on('message', (msg) => {
     const cid = msg.chat.id;
     const text = msg.text?.trim();
-    if (!text || text.startsWith('/')) return;
+    if (!text) return;
+
     const session = userSessions.get(cid);
     if (!session) return;
 
@@ -282,23 +301,24 @@ export function initBot(token) {
     }
   });
 
-  bot.onText(/\/stop/, (msg) => {
-    const cid = msg.chat.id;
-    bot.sendMessage(cid, '🛑 Bot desativado. Para reativar, envie /start');
-    bot.stopPolling();
-    bot = null;
+  bot.on('polling_error', (err) => {
+    console.log('   Telegram polling error:', err.message);
   });
 
   return bot;
 }
 
 export function sendNotification(message) {
-  if (bot && chatId) bot.sendMessage(chatId, message, { parse_mode: 'Markdown' }).catch(() => {});
+  if (bot && chatId) {
+    bot.sendMessage(chatId, message, { parse_mode: 'Markdown' }).catch(() => {});
+  }
 }
 
 export function stopBot() {
   if (bot) {
-    bot.stopPolling().catch(() => {});
+    try {
+      bot.stopPolling().catch(() => {});
+    } catch (e) {}
     bot = null;
     console.log('   Telegram Bot: parado');
   }
