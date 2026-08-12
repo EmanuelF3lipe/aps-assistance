@@ -16,6 +16,7 @@ import RelatoriosPanel from './components/RelatoriosPanel'
 import AdvancedSearchPanel from './components/AdvancedSearchPanel'
 import DiarioPanel from './components/DiarioPanel'
 import SplashScreen from './components/SplashScreen'
+import PublicForm from './components/PublicForm'
 import ErrorPopup from './components/ErrorPopup'
 import { FiX, FiCommand, FiEdit } from 'react-icons/fi'
 
@@ -294,6 +295,10 @@ export default function App() {
     window.addEventListener('keydown', handleKeyDown)
     return () => window.removeEventListener('keydown', handleKeyDown)
   }, [errorPopup.show, showAdvancedSearch, showShortcuts, handleCloseErrorPopup])
+
+  if (window.location.pathname === '/cadastrar') {
+    return <PublicForm />
+  }
 
   if (showSplash) {
     return <SplashScreen onEnter={(moduleId) => { setCurrentModule(moduleId); setShowSplash(false) }} />

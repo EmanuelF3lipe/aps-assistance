@@ -53,6 +53,11 @@ if (!fs.existsSync(trashPath)) {
 app.use(express.json());
 app.use(express.static('dist'));
 
+// SPA fallback - serve index.html for client-side routes
+app.get('/cadastrar', (req, res) => {
+  res.sendFile(path.join(__dirname, '..', 'dist', 'index.html'));
+});
+
 function loadFavorites() {
   if (fs.existsSync(FAVORITES_FILE)) {
     return JSON.parse(fs.readFileSync(FAVORITES_FILE, 'utf8'));
@@ -827,6 +832,49 @@ app.put('/api/bot-config', (req, res) => {
     stopBot();
     res.json({ success: true, message: 'Token removido' });
   }
+});
+
+// Public form - get folders and tags
+app.get('/api/public/folders-tags', (req, res) => {
+  const folders = [];
+  if (fs.existsSync(NOTION_PATH)) {
+    fs.readdirSync(NOTION_PATH)
+      .filter(f => fs.statSync(path.join(NOTION_PATH, f)).isDirectory() && f !== TRASH_FOLDER && f !== '_images')
+      .forEach(f => folders.push(f));
+  }
+  const allTags = {};
+  for (const folder of folders) {
+    const fp = path.join(NOTION_PATH, folder);
+    if (!fs.existsSync(fp)) continue;
+    fs.readdirSync(fp).filter(f => f.endsWith('.md')).forEach(file => {
+      const content = fs.readFileSync(path.join(fp, file), 'utf8');
+      const m = content.match(/## Tags\n([\s\S]*?)$/);
+      if (m) {
+        m[1].split('\n').filter(t => t.startsWith('-')).map(t => t.replace('- ', '').trim()).filter(Boolean).forEach(tag => {
+          allTags[tag] = true;
+        });
+      }
+    });
+  }
+  res.json({ folders, tags: Object.keys(allTags).sort() });
+});
+
+// Public form - submit new error
+app.post('/api/public/submit', (req, res) => {
+  const { title, sistema, contexto, resolucao, tags } = req.body;
+  if (!title || !sistema) {
+    return res.status(400).json({ error: 'Titulo e sistema sao obrigatorios' });
+  }
+  const now = new Date();
+  const date = now.toLocaleDateString('pt-BR');
+  const time = now.toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' });
+  const tagsMd = (tags || []).map(t => '- ' + t).join('\n') || '- ';
+  const content = '# ' + title + '\n\n**Criado em:** ' + date + ' ' + time + '\n**Sistema:** ' + sistema + '\n**Contexto / Quando acontece:** ' + (contexto || '') + '\n\n## Resolucao (passo a passo)\n\n' + (resolucao || '') + '\n\n## Observacao\n\n\n\n## Tags\n\n' + tagsMd + '\n\n---\n';
+  const fp = path.join(NOTION_PATH, sistema);
+  if (!fs.existsSync(fp)) fs.mkdirSync(fp, { recursive: true });
+  fs.writeFileSync(path.join(fp, title + '.md'), content, 'utf8');
+  sendNotification('📝 *Erro cadastrado via formulario:*\n' + title + '\n📂 ' + sistema);
+  res.json({ success: true, message: 'Erro cadastrado com sucesso' });
 });
 
 app.post('/api/bot-stop', (req, res) => {
