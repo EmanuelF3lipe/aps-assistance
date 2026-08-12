@@ -1,7 +1,7 @@
 import { useState, useEffect, useRef } from 'react'
 import { FiSend, FiCheck, FiAlertCircle, FiTool, FiX, FiChevronDown, FiSearch } from 'react-icons/fi'
 
-export default function PublicForm({ onClose, folders: foldersProp, allTags: allTagsProp, onSuccess }) {
+export default function PublicForm({ onClose, folders: foldersProp, allTags: allTagsProp, onSuccess, onLoadTags }) {
   const isEmbedded = !!onClose
   const [folders, setFolders] = useState(foldersProp || [])
   const [allTags, setAllTags] = useState(allTagsProp || [])
@@ -17,6 +17,7 @@ export default function PublicForm({ onClose, folders: foldersProp, allTags: all
     if (isEmbedded) {
       setFolders(foldersProp || [])
       setAllTags(allTagsProp || [])
+      if (onLoadTags) onLoadTags()
       return
     }
     fetch('/api/public/folders-tags')

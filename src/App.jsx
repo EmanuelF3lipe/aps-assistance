@@ -80,9 +80,8 @@ export default function App() {
 
   const loadAllTags = useCallback(async () => {
     try {
-      const res = await fetch('/api/public/folders-tags')
-      const data = await res.json()
-      setAllTags(data.tags || [])
+      const res = await api.getTags()
+      setAllTags(Object.keys(res || {}))
     } catch (e) {
       setAllTags([])
     }
@@ -279,15 +278,13 @@ export default function App() {
   useEffect(() => {
     loadFolders()
     loadFavorites()
-    loadAllTags()
-  }, [loadFolders, loadFavorites, loadAllTags])
+  }, [loadFolders, loadFavorites])
 
   useEffect(() => {
     const socket = io()
     socket.on('data-changed', () => {
       loadFolders()
       loadFavorites()
-      loadAllTags()
       if (currentFolder && !currentFolder.startsWith('[search]') && mainView === 'erros') {
         loadFiles(currentFolder)
       }
@@ -298,7 +295,7 @@ export default function App() {
   useEffect(() => {
     const handleKeyDown = (e) => {
       if (e.ctrlKey && e.key === 'k') { e.preventDefault(); document.getElementById('searchInput')?.focus() }
-      if (e.ctrlKey && e.key === 'n') { e.preventDefault(); setModals(prev => ({ ...prev, newFile: true })) }
+      if (e.ctrlKey && e.key === 'n') { e.preventDefault(); setShowNewForm(true) }
       if (e.key === 'Escape') {
         if (errorPopup.show) handleCloseErrorPopup()
         else if (showAdvancedSearch) setShowAdvancedSearch(false)
@@ -411,11 +408,11 @@ export default function App() {
             setShowNewForm(false)
             showToast('Erro cadastrado com sucesso!')
             loadFolders()
-            loadAllTags()
             if (currentFolder && !currentFolder.startsWith('[search]') && mainView === 'erros') {
               loadFiles(currentFolder)
             }
           }}
+          onLoadTags={loadAllTags}
         />
       )}
 
