@@ -307,10 +307,6 @@ export default function App() {
     return () => window.removeEventListener('keydown', handleKeyDown)
   }, [errorPopup.show, showAdvancedSearch, showShortcuts, handleCloseErrorPopup])
 
-  if (window.location.pathname === '/cadastrar') {
-    return <PublicForm />
-  }
-
   if (showSplash) {
     return <SplashScreen onEnter={(moduleId) => { setCurrentModule(moduleId); setShowSplash(false) }} />
   }

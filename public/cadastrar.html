@@ -1,0 +1,160 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Cadastrar Erro - APS Assistance</title>
+  <style>
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+    body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; background: #080c14; color: #e2e8f0; min-height: 100vh; display: flex; align-items: center; justify-content: center; padding: 20px; }
+    .card { width: 100%; max-width: 600px; background: #111827; border: 1px solid #1e293b; border-radius: 16px; overflow: hidden; }
+    .header { padding: 24px 32px; border-bottom: 1px solid #1e293b; background: linear-gradient(135deg, rgba(59,130,246,0.05), transparent); }
+    .header-row { display: flex; align-items: center; gap: 12px; }
+    .icon-box { width: 40px; height: 40px; border-radius: 10px; background: linear-gradient(135deg, #3b82f6, #2563eb); display: flex; align-items: center; justify-content: center; flex-shrink: 0; }
+    .header h1 { font-size: 18px; margin: 0; }
+    .header p { font-size: 12px; color: #64748b; margin: 0; }
+    .body { padding: 24px 32px 32px; display: flex; flex-direction: column; gap: 20px; }
+    .field { display: flex; flex-direction: column; gap: 8px; }
+    .field label { font-size: 13px; font-weight: 600; color: #94a3b8; letter-spacing: 0.5px; text-transform: uppercase; }
+    .field input[type="text"], .field textarea { width: 100%; padding: 12px 16px; background: #1e293b; border: 1px solid #334155; border-radius: 10px; color: #e2e8f0; font-size: 14px; font-family: inherit; resize: vertical; transition: border-color 0.2s; }
+    .field input:focus, .field textarea:focus { outline: none; border-color: #3b82f6; box-shadow: 0 0 0 3px rgba(59,130,246,0.15); }
+    .field input::placeholder, .field textarea::placeholder { color: #475569; }
+    .radio-group { display: flex; flex-wrap: wrap; gap: 8px; }
+    .radio { display: flex; align-items: center; gap: 8px; padding: 8px 16px; background: #1e293b; border: 1px solid #334155; border-radius: 8px; cursor: pointer; font-size: 13px; color: #94a3b8; transition: all 0.2s; }
+    .radio:hover { border-color: #3b82f6; }
+    .radio.selected { background: rgba(59,130,246,0.1); border-color: #3b82f6; color: #3b82f6; font-weight: 600; }
+    .radio input { display: none; }
+    .tags-selected { display: flex; flex-wrap: wrap; gap: 6px; margin-bottom: 4px; }
+    .tag-chip { display: inline-flex; align-items: center; gap: 6px; padding: 4px 10px; background: rgba(59,130,246,0.1); border: 1px solid rgba(59,130,246,0.3); border-radius: 16px; font-size: 12px; color: #3b82f6; font-weight: 500; cursor: pointer; }
+    .combobox { position: relative; }
+    .combobox-trigger { display: flex; align-items: center; gap: 8px; padding: 10px 14px; background: #1e293b; border: 1px solid #334155; border-radius: 10px; cursor: pointer; transition: border-color 0.2s; }
+    .combobox-trigger:focus-within { border-color: #3b82f6; box-shadow: 0 0 0 3px rgba(59,130,246,0.15); }
+    .combobox-trigger input { background: none; border: none; color: #e2e8f0; outline: none; flex: 1; font-size: 13px; }
+    .combobox-trigger input::placeholder { color: #475569; }
+    .combobox-dropdown { position: absolute; top: calc(100% + 4px); left: 0; right: 0; max-height: 200px; overflow-y: auto; background: #1e293b; border: 1px solid #334155; border-radius: 10px; box-shadow: 0 8px 24px rgba(0,0,0,0.3); z-index: 10; display: none; }
+    .combobox-dropdown.open { display: block; }
+    .combobox-option { padding: 10px 14px; font-size: 13px; color: #94a3b8; cursor: pointer; transition: background 0.15s; }
+    .combobox-option:hover { background: #334155; color: #e2e8f0; }
+    .msg { padding: 10px 14px; border-radius: 8px; font-size: 13px; display: flex; align-items: center; gap: 8px; }
+    .msg.ok { background: #10b98115; color: #10b981; border: 1px solid #10b98130; }
+    .msg.err { background: #ef444415; color: #ef4444; border: 1px solid #ef444430; }
+    .submit-btn { display: flex; align-items: center; justify-content: center; gap: 8px; padding: 14px 24px; background: linear-gradient(135deg, #3b82f6, #2563eb); border: none; border-radius: 10px; color: #fff; font-size: 15px; font-weight: 600; cursor: pointer; transition: all 0.2s; margin-top: 8px; }
+    .submit-btn:hover { background: linear-gradient(135deg, #2563eb, #1d4ed8); transform: translateY(-1px); box-shadow: 0 4px 16px rgba(59,130,246,0.3); }
+    .submit-btn:disabled { opacity: 0.6; cursor: not-allowed; transform: none; }
+    .success-box { text-align: center; padding: 60px 32px; }
+    .success-icon { width: 64px; height: 64px; border-radius: 50%; background: #10b98120; display: flex; align-items: center; justify-content: center; margin: 0 auto 20px; color: #10b981; font-size: 32px; }
+    @media (max-width: 600px) { .body { padding: 20px; } .header { padding: 20px; } .radio-group { flex-direction: column; } .radio { width: 100%; } }
+  </style>
+</head>
+<body>
+  <div class="card" id="app">
+    <div class="header">
+      <div class="header-row">
+        <div class="icon-box"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="#fff" stroke-width="2"><path d="M14.7 6.3a1 1 0 0 0 0 1.4l1.6 1.6a1 1 0 0 0 1.4 0l3.77-3.77a6 6 0 0 1-7.94 7.94l-6.91 6.91a2.12 2.12 0 0 1-3-3l6.91-6.91a6 6 0 0 1 7.94-7.94l-3.76 3.76z"/></svg></div>
+        <div><h1>Cadastrar Erro</h1><p>Preencha os dados do erro</p></div>
+      </div>
+    </div>
+    <div class="body" id="formBody"></div>
+  </div>
+  <script>
+    let folders = [], allTags = [], selectedTags = [], tagSearch = '', dropdownOpen = false;
+    const form = { title: '', sistema: '', contexto: '', resolucao: '' };
+
+    async function init() {
+      try {
+        const res = await fetch('/api/public/folders-tags');
+        const data = await res.json();
+        folders = data.folders || [];
+        allTags = data.tags || [];
+      } catch(e) { folders = []; allTags = []; }
+      render();
+    }
+
+    function render() {
+      const filtered = allTags.filter(t => t.toLowerCase().includes(tagSearch.toLowerCase()) && !selectedTags.includes(t));
+      document.getElementById('formBody').innerHTML = `
+        <div class="field"><label>Titulo do erro *</label>
+          <input type="text" id="inTitle" placeholder="Ex: Erro ao emitir NF" value="${form.title}"></div>
+        <div class="field"><label>Sistema *</label>
+          <div class="radio-group">${folders.map(f =>
+            `<label class="radio ${form.sistema===f?'selected':''}"><input type="radio" name="sistema" value="${f}" ${form.sistema===f?'checked':''}>${f}</label>`
+          ).join('')}</div></div>
+        <div class="field"><label>Contexto / Quando acontece</label>
+          <textarea id="inCtx" rows="3" placeholder="Descreva em que situacao o erro ocorre...">${form.contexto}</textarea></div>
+        <div class="field"><label>Resolucao (passo a passo)</label>
+          <textarea id="inRes" rows="5" placeholder="Descreva como resolver o erro...">${form.resolucao}</textarea></div>
+        <div class="field"><label>Tags</label>
+          <div class="tags-selected" id="tagsSelected">${selectedTags.map(t =>
+            `<span class="tag-chip" onclick="removeTag('${t}')">${t} ✕</span>`
+          ).join('')}</div>
+          <div class="combobox">
+            <div class="combobox-trigger" onclick="toggleDropdown()">
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#64748b" stroke-width="2"><circle cx="11" cy="11" r="8"/><path d="m21 21-4.35-4.35"/></svg>
+              <input type="text" id="tagInput" placeholder="${selectedTags.length?'Adicionar mais tag...':'Buscar tag...'}" value="${tagSearch}" oninput="tagSearch=this.value;render()">
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#64748b" stroke-width="2" style="transform:${dropdownOpen?'rotate(180deg)':'rotate(0)'};transition:transform 0.2s"><path d="m6 9 6 6 6-6"/></svg>
+            </div>
+            <div class="combobox-dropdown ${dropdownOpen&&filtered.length?'open':''}">
+              ${filtered.slice(0,20).map(t =>
+                `<div class="combobox-option" onclick="addTag('${t}')">${t}</div>`
+              ).join('')}
+            </div>
+          </div></div>
+        <div id="msgArea"></div>
+        <button class="submit-btn" id="submitBtn" onclick="submitForm()">
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#fff" stroke-width="2"><line x1="22" y1="2" x2="11" y2="13"/><polygon points="22 2 15 22 11 13 2 9 22 2"/></svg>
+          Cadastrar Erro
+        </button>`;
+
+      document.getElementById('inTitle').addEventListener('input', e => { form.title = e.target.value; });
+      document.getElementById('inCtx').addEventListener('input', e => { form.contexto = e.target.value; });
+      document.getElementById('inRes').addEventListener('input', e => { form.resolucao = e.target.value; });
+      document.querySelectorAll('input[name="sistema"]').forEach(r => {
+        r.addEventListener('change', e => { form.sistema = e.target.value; render(); });
+      });
+      document.getElementById('tagInput').addEventListener('focus', () => { dropdownOpen = true; render(); });
+      document.addEventListener('click', e => {
+        if (!e.target.closest('.combobox')) { dropdownOpen = false; render(); }
+      }, { once: true });
+    }
+
+    function addTag(t) { selectedTags.push(t); tagSearch=''; dropdownOpen=false; render(); }
+    function removeTag(t) { selectedTags=selectedTags.filter(x=>x!==t); render(); }
+    function toggleDropdown() { dropdownOpen=!dropdownOpen; render(); }
+
+    async function submitForm() {
+      if (!form.title.trim() || !form.sistema) {
+        document.getElementById('msgArea').innerHTML = '<div class="msg err">Preencha titulo e sistema</div>';
+        return;
+      }
+      document.getElementById('submitBtn').disabled = true;
+      document.getElementById('submitBtn').textContent = 'Enviando...';
+      try {
+        const res = await fetch('/api/public/submit', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ ...form, tags: selectedTags })
+        });
+        const data = await res.json();
+        if (data.success) {
+          document.getElementById('app').innerHTML = `
+            <div class="success-box">
+              <div class="success-icon">✓</div>
+              <h2 style="margin:0 0 8px">Erro Cadastrado!</h2>
+              <p style="color:#64748b;margin:0">Obrigado por reportar. O erro foi salvo no sistema.</p>
+              <button class="submit-btn" style="margin-top:24px;max-width:200px" onclick="location.reload()">Cadastrar outro</button>
+            </div>`;
+        } else {
+          document.getElementById('msgArea').innerHTML = '<div class="msg err">'+(data.error||'Erro ao cadastrar')+'</div>';
+          document.getElementById('submitBtn').disabled = false;
+          document.getElementById('submitBtn').innerHTML = '<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#fff" stroke-width="2"><line x1="22" y1="2" x2="11" y2="13"/><polygon points="22 2 15 22 11 13 2 9 22 2"/></svg> Cadastrar Erro';
+        }
+      } catch(e) {
+        document.getElementById('msgArea').innerHTML = '<div class="msg err">Erro de conexao</div>';
+        document.getElementById('submitBtn').disabled = false;
+        document.getElementById('submitBtn').innerHTML = '<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#fff" stroke-width="2"><line x1="22" y1="2" x2="11" y2="13"/><polygon points="22 2 15 22 11 13 2 9 22 2"/></svg> Cadastrar Erro';
+      }
+    }
+    init();
+  </script>
+</body>
+</html>

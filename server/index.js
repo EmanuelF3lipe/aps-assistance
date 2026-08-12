@@ -53,9 +53,9 @@ if (!fs.existsSync(trashPath)) {
 app.use(express.json());
 app.use(express.static('dist'));
 
-// SPA fallback - serve index.html for client-side routes
+// Public form page (standalone HTML, no React)
 app.get('/cadastrar', (req, res) => {
-  res.sendFile(path.join(__dirname, '..', 'dist', 'index.html'));
+  res.sendFile(path.join(__dirname, '..', 'public', 'cadastrar.html'));
 });
 
 function loadFavorites() {
