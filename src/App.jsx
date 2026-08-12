@@ -79,8 +79,13 @@ export default function App() {
   }, [])
 
   const loadAllTags = useCallback(async () => {
-    const data = await api.getTags()
-    setAllTags(Object.keys(data || {}))
+    try {
+      const res = await fetch('/api/public/folders-tags')
+      const data = await res.json()
+      setAllTags(data.tags || [])
+    } catch (e) {
+      setAllTags([])
+    }
   }, [])
 
   const handleSelectFolder = useCallback(async (folder) => {
