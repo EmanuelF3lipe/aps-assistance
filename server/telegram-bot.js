@@ -12,6 +12,7 @@ let bot = null;
 let chatId = null;
 const userSessions = new Map();
 const indexMap = new Map();
+const pendingMessages = [];
 let idCounter = 0;
 
 function resetIndex() { indexMap.clear(); idCounter = 0; }
@@ -108,6 +109,12 @@ export function initBot(token) {
     chatId = cid;
     userSessions.delete(cid);
     resetIndex();
+
+    while (pendingMessages.length > 0) {
+      const pending = pendingMessages.shift();
+      bot.sendMessage(chatId, pending, { parse_mode: 'Markdown' }).catch(() => {});
+    }
+
     bot.sendMessage(cid, '*🤖 APS Assistance*\nEscolha uma opcao:', {
       parse_mode: 'Markdown',
       reply_markup: { inline_keyboard: [
@@ -309,8 +316,11 @@ export function initBot(token) {
 }
 
 export function sendNotification(message) {
-  if (bot && chatId) {
+  if (!bot) return;
+  if (chatId) {
     bot.sendMessage(chatId, message, { parse_mode: 'Markdown' }).catch(() => {});
+  } else {
+    pendingMessages.push(message);
   }
 }
 
@@ -320,6 +330,8 @@ export function stopBot() {
       bot.stopPolling().catch(() => {});
     } catch (e) {}
     bot = null;
+    chatId = null;
+    pendingMessages.length = 0;
     console.log('   Telegram Bot: parado');
   }
 }
