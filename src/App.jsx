@@ -320,7 +320,7 @@ export default function App() {
         searchQuery={searchQuery}
         onSearch={handleSearch}
         onClearSearch={handleClearSearch}
-        onNewFile={() => setModals(prev => ({ ...prev, newFile: true }))}
+        onNewFile={() => setShowNewForm(true)}
         mainView={mainView}
         onSwitchView={() => setMainView(mainView === 'erros' ? 'dashboard' : 'erros')}
         onShowTags={() => { setMainView('erros'); setShowTrash(false); setShowTags(true) }}
