@@ -281,6 +281,10 @@ export default function App() {
   }, [loadFolders, loadFavorites])
 
   useEffect(() => {
+    if (showNewForm) loadAllTags()
+  }, [showNewForm, loadAllTags])
+
+  useEffect(() => {
     const socket = io()
     socket.on('data-changed', () => {
       loadFolders()
@@ -408,7 +412,6 @@ export default function App() {
               loadFiles(currentFolder)
             }
           }}
-          onLoadTags={loadAllTags}
         />
       )}
 

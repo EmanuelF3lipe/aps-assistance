@@ -17,7 +17,6 @@ export default function PublicForm({ onClose, folders: foldersProp, allTags: all
     if (isEmbedded) {
       setFolders(foldersProp || [])
       setAllTags(allTagsProp || [])
-      if (onLoadTags) onLoadTags()
       return
     }
     fetch('/api/public/folders-tags')
