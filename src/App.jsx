@@ -79,7 +79,7 @@ export default function App() {
   }, [])
 
   const loadAllTags = useCallback(async () => {
-    const data = await api.getAllTags()
+    const data = await api.getTags()
     setAllTags(Object.keys(data || {}))
   }, [])
 
