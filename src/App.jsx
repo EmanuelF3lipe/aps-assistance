@@ -42,6 +42,8 @@ export default function App() {
   const [sortBy, setSortBy] = useState('name')
   const [currentModule, setCurrentModule] = useState(null)
   const [selectedFiles, setSelectedFiles] = useState([])
+  const [showNewForm, setShowNewForm] = useState(false)
+  const [allTags, setAllTags] = useState([])
 
   useEffect(() => {
     document.documentElement.setAttribute('data-theme', theme)
@@ -74,6 +76,11 @@ export default function App() {
   const loadFiles = useCallback(async (folder) => {
     const data = await api.getFiles(folder)
     setFiles(data)
+  }, [])
+
+  const loadAllTags = useCallback(async () => {
+    const data = await api.getAllTags()
+    setAllTags(Object.keys(data || {}))
   }, [])
 
   const handleSelectFolder = useCallback(async (folder) => {
@@ -267,13 +274,15 @@ export default function App() {
   useEffect(() => {
     loadFolders()
     loadFavorites()
-  }, [loadFolders, loadFavorites])
+    loadAllTags()
+  }, [loadFolders, loadFavorites, loadAllTags])
 
   useEffect(() => {
     const socket = io()
     socket.on('data-changed', () => {
       loadFolders()
       loadFavorites()
+      loadAllTags()
       if (currentFolder && !currentFolder.startsWith('[search]') && mainView === 'erros') {
         loadFiles(currentFolder)
       }
@@ -362,7 +371,7 @@ export default function App() {
             onSelectFile={handleErrorPopup}
             favorites={favorites}
             onToggleFavorite={handleToggleFavorite}
-            onNewFile={() => setModals(prev => ({ ...prev, newFile: true }))}
+        onNewFile={() => setShowNewForm(true)}
             sortBy={sortBy}
             onSortChange={setSortBy}
             selectedFiles={selectedFiles}
@@ -386,6 +395,23 @@ export default function App() {
         <div className="dashboard-full"><RelatoriosPanel /></div>
       ) : (
         <div className="dashboard-full"><Dashboard onSelectFile={handleErrorPopup} /></div>
+      )}
+
+      {showNewForm && (
+        <PublicForm
+          onClose={() => setShowNewForm(false)}
+          folders={folders}
+          allTags={allTags}
+          onSuccess={() => {
+            setShowNewForm(false)
+            showToast('Erro cadastrado com sucesso!')
+            loadFolders()
+            loadAllTags()
+            if (currentFolder && !currentFolder.startsWith('[search]') && mainView === 'erros') {
+              loadFiles(currentFolder)
+            }
+          }}
+        />
       )}
 
       <Toast {...toast} />
