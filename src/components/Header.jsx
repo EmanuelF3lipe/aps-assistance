@@ -1,4 +1,19 @@
-import { FiSearch, FiPlus, FiTag, FiFileText, FiGrid, FiList, FiFilter, FiMenu, FiSun, FiMoon, FiCommand, FiBook, FiArrowLeft } from 'react-icons/fi'
+import { FiSearch, FiPlus, FiTag, FiFileText, FiGrid, FiList, FiFilter, FiMenu, FiSun, FiMoon, FiCommand, FiBook, FiArrowLeft, FiCpu } from 'react-icons/fi'
+
+const MODULE_META = {
+  diario: {
+    title: 'Diario de Turno',
+    subtitle: 'Registro de Ocorrencias',
+    icon: <FiBook size={20} />,
+    gradient: 'linear-gradient(135deg, #2d5a3d, #4a7c59)'
+  },
+  ferramentas: {
+    title: 'Caixa de Ferramentas',
+    subtitle: 'Utilidades do Plantao',
+    icon: <FiCpu size={20} />,
+    gradient: 'linear-gradient(135deg, #7f1d1d, #dc2626)'
+  }
+}
 
 export default function Header({ currentModule, searchQuery, onSearch, onClearSearch, onNewFile, onShowDashboard, onShowTags, onShowRelatorios, mainView, onSwitchView, onShowAdvancedSearch, onToggleTheme, theme, onToggleSidebar, onShowShortcuts, onGoHome }) {
 
@@ -10,7 +25,8 @@ export default function Header({ currentModule, searchQuery, onSearch, onClearSe
     }
   }
 
-  const isDiario = currentModule === 'diario'
+  const meta = MODULE_META[currentModule]
+  const isAps = !meta
 
   return (
     <header>
@@ -18,7 +34,7 @@ export default function Header({ currentModule, searchQuery, onSearch, onClearSe
         <button className="mobile-menu-btn" onClick={onToggleSidebar}>
           <FiMenu size={18} />
         </button>
-        {isDiario && (
+        {!isAps && (
           <button
             onClick={onGoHome}
             style={{
@@ -38,17 +54,17 @@ export default function Header({ currentModule, searchQuery, onSearch, onClearSe
           </button>
         )}
         <button onClick={onGoHome} className="logo" style={{ background: 'none', border: 'none', cursor: 'pointer', padding: 0 }}>
-          <div className="logo-icon" style={isDiario ? { background: 'linear-gradient(135deg, #2d5a3d, #4a7c59)' } : {}}>
-            {isDiario ? <FiBook size={20} /> : <FiSearch size={20} />}
+          <div className="logo-icon" style={meta ? { background: meta.gradient } : {}}>
+            {meta ? meta.icon : <FiSearch size={20} />}
           </div>
           <h1>
-            {isDiario ? 'Diario de Turno' : 'APS Assistance'}
-            <span>{isDiario ? 'Registro de Ocorrencias' : 'Catalogo de Erros e Solucoes'}</span>
+            {meta ? meta.title : 'APS Assistance'}
+            <span>{meta ? meta.subtitle : 'Catalogo de Erros e Solucoes'}</span>
           </h1>
         </button>
       </div>
 
-      {!isDiario && (
+      {isAps && (
         <div className="search-box">
           <input
             id="searchInput"
@@ -68,7 +84,7 @@ export default function Header({ currentModule, searchQuery, onSearch, onClearSe
       )}
 
       <div className="header-actions">
-        {!isDiario && (
+        {isAps && (
           <>
             <button onClick={onSwitchView} className={mainView === 'erros' ? 'active-view-btn' : ''}>
               {mainView === 'erros' ? <><FiGrid size={14} /> <span>Dashboard</span></> : <><FiList size={14} /> <span>Ver Erros</span></>}
@@ -89,7 +105,7 @@ export default function Header({ currentModule, searchQuery, onSearch, onClearSe
         <button className="theme-toggle" onClick={onToggleTheme} title="Trocar tema">
           {theme === 'dark' ? <FiSun size={14} /> : <FiMoon size={14} />}
         </button>
-        {!isDiario && (
+        {isAps && (
           <button onClick={onNewFile}>
             <FiPlus size={14} /> <span>Novo Erro</span>
           </button>

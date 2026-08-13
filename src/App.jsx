@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback, useMemo } from 'react'
+import { useState, useEffect, useCallback, useMemo, useRef } from 'react'
 import { io } from 'socket.io-client'
 import { api } from './services/api'
 import Header from './components/Header'
@@ -6,15 +6,14 @@ import Sidebar from './components/Sidebar'
 import FilePanel from './components/FilePanel'
 import Dashboard from './components/Dashboard'
 import Toast from './components/Toast'
-import NewFileModal from './components/Modals/NewFileModal'
 import NewFolderModal from './components/Modals/NewFolderModal'
 import RenameFolderModal from './components/Modals/RenameFolderModal'
-import MoveFileModal from './components/Modals/MoveFileModal'
 import TrashPanel from './components/TrashPanel'
 import TagsPanel from './components/TagsPanel'
 import RelatoriosPanel from './components/RelatoriosPanel'
 import AdvancedSearchPanel from './components/AdvancedSearchPanel'
 import DiarioPanel from './components/DiarioPanel'
+import ToolboxPanel from './components/ToolboxPanel'
 import SplashScreen from './components/SplashScreen'
 import PublicForm from './components/PublicForm'
 import ErrorPopup from './components/ErrorPopup'
@@ -167,18 +166,6 @@ export default function App() {
     await loadFavorites()
   }, [favorites, loadFavorites, showToast])
 
-  const handleCreateFile = useCallback(async (name, folder) => {
-    const now = new Date()
-    const date = now.toLocaleDateString('pt-BR')
-    const time = now.toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' })
-    const template = `# ${name}\n\n**Criado em:** ${date} ${time}\n**Sistema:** \n**Contexto / Quando acontece:** \n\n## Resolucao (passo a passo)\n\n1. \n2. \n3. \n\n## Observacao\n\n\n\n## Tags\n\n- `
-    await api.createFile(folder, name, template)
-    setModals(prev => ({ ...prev, newFile: false }))
-    await handleSelectFolder(folder)
-    setFolderRefreshTrigger(prev => prev + 1)
-    showToast('Criado com sucesso!')
-  }, [handleSelectFolder, showToast])
-
   const handleCreateFolder = useCallback(async (name) => {
     const result = await api.createFolder(name)
     if (result.error) { showToast(result.error, 'error'); return }
@@ -229,9 +216,12 @@ export default function App() {
   }, [showToast])
 
   const handleMoveFile = useCallback(async (targetFolder) => {
-    if (!targetFolder || targetFolder === currentFolder) return
-    const filename = errorPopup.file?.filename || errorPopup.file?.name + '.md'
-    await api.moveFile(currentFolder, filename, targetFolder)
+    const file = errorPopup.file
+    if (!file || !targetFolder || targetFolder === (file.folder || currentFolder)) return
+    const filename = file.filename || (file.name ? file.name + '.md' : '')
+    if (!filename) return
+    const sourceFolder = file.folder || currentFolder
+    await api.moveFile(sourceFolder, filename, targetFolder)
     setModals(prev => ({ ...prev, moveFile: false }))
     await loadFiles(currentFolder)
     await loadFolders()
@@ -284,24 +274,30 @@ export default function App() {
     if (showNewForm) loadAllTags()
   }, [showNewForm, loadAllTags])
 
+  const currentFolderRef = useRef(currentFolder)
+  currentFolderRef.current = currentFolder
+  const mainViewRef = useRef(mainView)
+  mainViewRef.current = mainView
+
   useEffect(() => {
     const socket = io()
     socket.on('data-changed', () => {
       loadFolders()
       loadFavorites()
-      if (currentFolder && !currentFolder.startsWith('[search]') && mainView === 'erros') {
-        loadFiles(currentFolder)
+      if (currentFolderRef.current && !currentFolderRef.current.startsWith('[search]') && mainViewRef.current === 'erros') {
+        loadFiles(currentFolderRef.current)
       }
     })
     return () => socket.disconnect()
-  }, [loadFolders, loadFavorites, loadFiles, currentFolder, mainView])
+  }, [loadFolders, loadFavorites, loadFiles])
 
   useEffect(() => {
     const handleKeyDown = (e) => {
       if (e.ctrlKey && e.key === 'k') { e.preventDefault(); document.getElementById('searchInput')?.focus() }
       if (e.ctrlKey && e.key === 'n') { e.preventDefault(); setShowNewForm(true) }
       if (e.key === 'Escape') {
-        if (errorPopup.show) handleCloseErrorPopup()
+        if (showNewForm) setShowNewForm(false)
+        else if (errorPopup.show) handleCloseErrorPopup()
         else if (showAdvancedSearch) setShowAdvancedSearch(false)
         else if (showShortcuts) setShowShortcuts(false)
       }
@@ -309,7 +305,16 @@ export default function App() {
     }
     window.addEventListener('keydown', handleKeyDown)
     return () => window.removeEventListener('keydown', handleKeyDown)
-  }, [errorPopup.show, showAdvancedSearch, showShortcuts, handleCloseErrorPopup])
+  }, [showNewForm, errorPopup.show, showAdvancedSearch, showShortcuts, handleCloseErrorPopup])
+
+  const handleGoHome = useCallback(() => {
+    setShowSplash(true)
+    setCurrentModule(null)
+    setSidebarOpen(false)
+    setShowNewForm(false)
+    setErrorPopup({ show: false, file: null })
+    setSelectedFiles([])
+  }, [])
 
   if (showSplash) {
     return <SplashScreen onEnter={(moduleId) => { setCurrentModule(moduleId); setShowSplash(false) }} />
@@ -334,12 +339,15 @@ export default function App() {
         theme={theme}
         onToggleSidebar={() => setSidebarOpen(o => !o)}
         onShowShortcuts={() => setShowShortcuts(true)}
+        onGoHome={handleGoHome}
       />
 
       {sidebarOpen && <div className="sidebar-overlay active" onClick={() => setSidebarOpen(false)} />}
 
       {currentModule === 'diario' ? (
         <div className="dashboard-full"><DiarioPanel /></div>
+      ) : currentModule === 'ferramentas' ? (
+        <div className="dashboard-full"><ToolboxPanel /></div>
       ) : showTrash ? (
         <div className="dashboard-full">
           <TrashPanel
@@ -401,6 +409,7 @@ export default function App() {
 
       {showNewForm && (
         <PublicForm
+          key="new-error-form"
           onClose={() => setShowNewForm(false)}
           folders={folders}
           allTags={allTags}
@@ -417,23 +426,17 @@ export default function App() {
 
       <Toast {...toast} />
 
-      {modals.newFile && (
-        <NewFileModal folders={folders} onClose={() => setModals(p => ({ ...p, newFile: false }))} onCreate={handleCreateFile} />
-      )}
       {modals.newFolder && (
         <NewFolderModal onClose={() => setModals(p => ({ ...p, newFolder: false }))} onCreate={handleCreateFolder} />
       )}
       {modals.renameFolder && (
         <RenameFolderModal currentName={selectedFolderForRename} onClose={() => setModals(p => ({ ...p, renameFolder: false }))} onRename={handleRenameFolder} />
       )}
-      {modals.moveFile && (
-        <MoveFileModal folders={folders} currentFolder={currentFolder} onClose={() => setModals(p => ({ ...p, moveFile: false }))} onMove={handleMoveFile} />
-      )}
       {showAdvancedSearch && (
         <AdvancedSearchPanel onSearch={handleAdvancedSearch} onClose={() => setShowAdvancedSearch(false)} />
       )}
       {errorPopup.show && (
-        <ErrorPopup file={errorPopup.file} onClose={handleCloseErrorPopup} onMove={(target) => { handleMoveFile(target); handleCloseErrorPopup() }} folders={folders} />
+        <ErrorPopup file={errorPopup.file} onClose={handleCloseErrorPopup} onMove={handleMoveFile} folders={folders} />
       )}
 
       {showShortcuts && (

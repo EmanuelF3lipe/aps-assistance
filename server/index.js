@@ -51,7 +51,7 @@ if (!fs.existsSync(trashPath)) {
 }
 
 app.use(express.json());
-app.use(express.static('dist'));
+app.use(express.static(path.join(__dirname, '..', 'dist')));
 
 // Public form page (standalone HTML, no React)
 app.get('/cadastrar', (req, res) => {
@@ -108,13 +108,9 @@ app.put('/api/folders/:oldName', (req, res) => {
 });
 
 app.delete('/api/folders/:name', (req, res) => {
-  const { name } = req.params;
-  const folderPath = path.join(NOTION_PATH, name);
+  const folderPath = resolveFolderPath(req.params.name);
+  if (!folderPath) return res.status(404).json({ error: 'Pasta não encontrada' });
   
-  if (!fs.existsSync(folderPath)) {
-    return res.status(404).json({ error: 'Pasta não encontrada' });
-  }
-
   const files = fs.readdirSync(folderPath).filter(f => f.endsWith('.md'));
   if (files.length > 0) {
     const trashDir = path.join(NOTION_PATH, TRASH_FOLDER);
@@ -124,7 +120,7 @@ app.delete('/api/folders/:name', (req, res) => {
     
     files.forEach(file => {
       const source = path.join(folderPath, file);
-      const dest = path.join(trashDir, `${name}__${file}`);
+      const dest = path.join(trashDir, `${path.basename(folderPath)}__${file}`);
       fs.renameSync(source, dest);
     });
   }
@@ -134,34 +130,43 @@ app.delete('/api/folders/:name', (req, res) => {
   res.json({ success: true, movedFiles: files.length });
 });
 
+function resolveFolderPath(requestedFolder) {
+  if (!fs.existsSync(NOTION_PATH)) return null;
+  const dirs = fs.readdirSync(NOTION_PATH).filter(f => fs.statSync(path.join(NOTION_PATH, f)).isDirectory());
+  const normReq = requestedFolder.normalize('NFC');
+  for (const d of dirs) {
+    if (d.normalize('NFC') === normReq) return path.join(NOTION_PATH, d);
+  }
+  return null;
+}
+
 app.get('/api/files/:folder', (req, res) => {
-  const folder = req.params.folder;
-  const folderPath = path.join(NOTION_PATH, folder);
-  if (!fs.existsSync(folderPath)) return res.json([]);
+  const folderPath = resolveFolderPath(req.params.folder);
+  if (!folderPath) return res.json([]);
   const files = fs.readdirSync(folderPath)
     .filter(f => f.endsWith('.md'))
-    .map(f => ({ name: f.replace('.md', ''), filename: f, folder }));
+    .map(f => ({ name: f.replace('.md', ''), filename: f, folder: path.basename(folderPath) }));
   res.json(files);
 });
 
 app.get('/api/file/:folder/:filename', (req, res) => {
-  const { folder, filename } = req.params;
-  const filePath = path.join(NOTION_PATH, folder, filename);
+  const folderPath = resolveFolderPath(req.params.folder);
+  if (!folderPath) return res.status(404).json({ error: 'Pasta não encontrada' });
+  const filePath = path.join(folderPath, req.params.filename);
   if (!fs.existsSync(filePath)) {
     return res.status(404).json({ error: 'Arquivo não encontrado' });
   }
   const content = fs.readFileSync(filePath, 'utf8');
-  res.json({ content, filename, folder });
+  res.json({ content, filename: req.params.filename, folder: path.basename(folderPath) });
 });
 
 app.post('/api/file/:folder', (req, res) => {
-  const folder = req.params.folder;
-  const { filename, content } = req.body;
-  const folderPath = path.join(NOTION_PATH, folder);
-  if (!fs.existsSync(folderPath)) {
-    fs.mkdirSync(folderPath, { recursive: true });
+  const folderPath = resolveFolderPath(req.params.folder);
+  const targetPath = folderPath || path.join(NOTION_PATH, req.params.folder);
+  if (!fs.existsSync(targetPath)) {
+    fs.mkdirSync(targetPath, { recursive: true });
   }
-  const filePath = path.join(folderPath, filename + '.md');
+  const filePath = path.join(targetPath, req.body.filename + '.md');
   fs.writeFileSync(filePath, content, 'utf8');
   io.emit('data-changed');
   sendNotification(`📝 *Novo erro criado:*\n${filename} (${folder})`);
@@ -169,41 +174,42 @@ app.post('/api/file/:folder', (req, res) => {
 });
 
 app.put('/api/file/:folder/:filename', (req, res) => {
-  const { folder, filename } = req.params;
-  const { content } = req.body;
-  const filePath = path.join(NOTION_PATH, folder, filename);
+  const folderPath = resolveFolderPath(req.params.folder);
+  if (!folderPath) return res.status(404).json({ error: 'Pasta não encontrada' });
+  const filePath = path.join(folderPath, req.params.filename);
   if (!fs.existsSync(filePath)) {
     return res.status(404).json({ error: 'Arquivo não encontrado' });
   }
-  fs.writeFileSync(filePath, content, 'utf8');
+  fs.writeFileSync(filePath, req.body.content, 'utf8');
   io.emit('data-changed');
-  sendNotification(`✏️ *Erro atualizado:*\n${filename.replace('.md', '')} (${folder})`);
+  sendNotification(`✏️ *Erro atualizado:*\n${req.params.filename.replace('.md', '')} (${path.basename(folderPath)})`);
   res.json({ success: true });
 });
 
 app.delete('/api/file/:folder/:filename', (req, res) => {
-  const { folder, filename } = req.params;
-  const filePath = path.join(NOTION_PATH, folder, filename);
+  const folderPath = resolveFolderPath(req.params.folder);
+  if (!folderPath) return res.status(404).json({ error: 'Pasta não encontrada' });
+  const filePath = path.join(folderPath, req.params.filename);
   
   if (fs.existsSync(filePath)) {
     const trashDir = path.join(NOTION_PATH, TRASH_FOLDER);
     if (!fs.existsSync(trashDir)) {
       fs.mkdirSync(trashDir, { recursive: true });
     }
-    const dest = path.join(trashDir, `${folder}__${filename}`);
+    const dest = path.join(trashDir, `${path.basename(folderPath)}__${req.params.filename}`);
     fs.renameSync(filePath, dest);
   }
   
   io.emit('data-changed');
-  sendNotification(`🗑️ *Erro excluido:*\n${filename.replace('.md', '')} (${folder})`);
+  sendNotification(`🗑️ *Erro excluido:*\n${req.params.filename.replace('.md', '')} (${path.basename(folderPath)})`);
   res.json({ success: true });
 });
 
 // Atualizar tags de um arquivo
 app.put('/api/file/:folder/:filename/tags', (req, res) => {
-  const { folder, filename } = req.params;
-  const { tags } = req.body;
-  const filePath = path.join(NOTION_PATH, folder, filename);
+  const folderPath = resolveFolderPath(req.params.folder);
+  if (!folderPath) return res.status(404).json({ error: 'Pasta não encontrada' });
+  const filePath = path.join(folderPath, req.params.filename);
   
   if (!fs.existsSync(filePath)) {
     return res.status(404).json({ error: 'Arquivo não encontrado' });
@@ -215,8 +221,8 @@ app.put('/api/file/:folder/:filename/tags', (req, res) => {
   content = content.replace(/\n## Tags\n[\s\S]*?(?=\n## |\n# |\nÚltima|$)/, '');
   
   // Adicionar novas tags
-  if (tags && tags.length > 0) {
-    const tagsSection = '\n## Tags\n' + tags.map(t => `- ${t}`).join('\n');
+  if (req.body.tags && req.body.tags.length > 0) {
+    const tagsSection = '\n## Tags\n' + req.body.tags.map(t => `- ${t}`).join('\n');
     content += tagsSection;
   }
   
@@ -226,10 +232,13 @@ app.put('/api/file/:folder/:filename/tags', (req, res) => {
 });
 
 app.put('/api/file/:folder/:filename/rename', (req, res) => {
-  const { folder, filename } = req.params;
-  const { newFilename } = req.body;
-  const oldPath = path.join(NOTION_PATH, folder, filename);
-  const newPath = path.join(NOTION_PATH, folder, newFilename);
+  const folderPath = resolveFolderPath(req.params.folder);
+  if (!folderPath) return res.status(404).json({ error: 'Pasta não encontrada' });
+  let { newFilename } = req.body;
+  if (!newFilename) return res.status(400).json({ error: 'Nome obrigatorio' });
+  if (!newFilename.endsWith('.md')) newFilename += '.md';
+  const oldPath = path.join(folderPath, req.params.filename);
+  const newPath = path.join(folderPath, newFilename);
   if (!fs.existsSync(oldPath)) {
     return res.status(404).json({ error: 'Arquivo não encontrado' });
   }
@@ -238,28 +247,28 @@ app.put('/api/file/:folder/:filename/rename', (req, res) => {
   }
   fs.renameSync(oldPath, newPath);
   io.emit('data-changed');
-  sendNotification(`📝 *Erro renomeado:*\n${filename.replace('.md', '')} → ${newFilename.replace('.md', '')} (${folder})`);
+  sendNotification(`📝 *Erro renomeado:*\n${req.params.filename.replace('.md', '')} → ${newFilename.replace('.md', '')} (${path.basename(folderPath)})`);
   res.json({ success: true, newFilename });
 });
 
 app.put('/api/file/:folder/:filename/move', (req, res) => {
-  const { folder, filename } = req.params;
-  const { targetFolder } = req.body;
-  const sourcePath = path.join(NOTION_PATH, folder, filename);
-  const targetDir = path.join(NOTION_PATH, targetFolder);
+  const folderPath = resolveFolderPath(req.params.folder);
+  if (!folderPath) return res.status(404).json({ error: 'Pasta não encontrada' });
+  const sourcePath = path.join(folderPath, req.params.filename);
+  const targetFolderPath = resolveFolderPath(req.body.targetFolder);
+  if (!targetFolderPath) {
+    return res.status(404).json({ error: 'Pasta destino não encontrada' });
+  }
   if (!fs.existsSync(sourcePath)) {
     return res.status(404).json({ error: 'Arquivo não encontrado' });
   }
-  if (!fs.existsSync(targetDir)) {
-    fs.mkdirSync(targetDir, { recursive: true });
-  }
-  const targetPath = path.join(targetDir, filename);
+  const targetPath = path.join(targetFolderPath, req.params.filename);
   if (fs.existsSync(targetPath)) {
     return res.status(400).json({ error: 'Já existe um arquivo com esse nome na pasta destino' });
   }
   fs.renameSync(sourcePath, targetPath);
   io.emit('data-changed');
-  sendNotification(`📦 *Erro movido:*\n${filename.replace('.md', '')}\n${folder} → ${targetFolder}`);
+  sendNotification(`📦 *Erro movido:*\n${req.params.filename.replace('.md', '')}\n${path.basename(folderPath)} → ${path.basename(targetFolderPath)}`);
   res.json({ success: true });
 });
 
@@ -648,7 +657,11 @@ app.put('/api/diary/:id', (req, res) => {
   const entries = loadDiary();
   const idx = entries.findIndex(e => e.id === id);
   if (idx === -1) return res.status(404).json({ error: 'Entrada nao encontrada' });
-  if (resolved !== undefined) entries[idx].resolved = resolved;
+  if (resolved !== undefined) {
+    entries[idx].resolved = resolved;
+    if (resolved) entries[idx].resolvedAt = new Date().toISOString();
+    else entries[idx].resolvedAt = null;
+  }
   if (content !== undefined) entries[idx].content = content;
   if (priority !== undefined) entries[idx].priority = priority;
   entries[idx].updatedAt = new Date().toISOString();
@@ -666,8 +679,348 @@ app.delete('/api/diary/:id', (req, res) => {
   res.json({ success: true });
 });
 
-// Attachment endpoints
-// Upload de arquivo (base64)
+// Toolbox - codigos de observacao
+const TOOLBOX_FILE = path.join(__dirname, '..', 'toolbox.json');
+
+function loadToolbox() {
+  if (!fs.existsSync(TOOLBOX_FILE)) {
+    fs.writeFileSync(TOOLBOX_FILE, JSON.stringify({ codes: [] }, null, 2), 'utf8');
+    return { codes: [] };
+  }
+  try { return JSON.parse(fs.readFileSync(TOOLBOX_FILE, 'utf8')); } catch (e) { return { codes: [] }; }
+}
+function saveToolbox(data) {
+  fs.writeFileSync(TOOLBOX_FILE, JSON.stringify(data, null, 2), 'utf8');
+}
+
+app.get('/api/toolbox/codes', (req, res) => {
+  res.json(loadToolbox().codes || []);
+});
+
+app.post('/api/toolbox/codes', (req, res) => {
+  const { codigo, descricao } = req.body;
+  if (!codigo || !descricao) return res.status(400).json({ error: 'Codigo e descricao obrigatorios' });
+  const data = loadToolbox();
+  const item = { id: Date.now().toString(), codigo: String(codigo), descricao: String(descricao) };
+  (data.codes ||= []).push(item);
+  saveToolbox(data);
+  res.json(item);
+});
+
+app.put('/api/toolbox/codes/:id', (req, res) => {
+  const { id } = req.params;
+  const data = loadToolbox();
+  const idx = (data.codes || []).findIndex(c => c.id === id);
+  if (idx === -1) return res.status(404).json({ error: 'Codigo nao encontrado' });
+  if (req.body.codigo !== undefined) data.codes[idx].codigo = String(req.body.codigo);
+  if (req.body.descricao !== undefined) data.codes[idx].descricao = String(req.body.descricao);
+  saveToolbox(data);
+  res.json(data.codes[idx]);
+});
+
+app.delete('/api/toolbox/codes/:id', (req, res) => {
+  const { id } = req.params;
+  const data = loadToolbox();
+  data.codes = (data.codes || []).filter(c => c.id !== id);
+  saveToolbox(data);
+  res.json({ success: true });
+});
+
+// Toolbox - status SEFAZ (consulta pelo servidor, com cookie jar e parsing do portal oficial)
+const SEFAZ_URL = 'https://www.nfe.fazenda.gov.br/portal/disponibilidade.aspx';
+
+async function fetchWithCookies(url, maxRedirects = 5, signal) {
+  let cookies = '';
+  let currentUrl = url;
+  for (let i = 0; i < maxRedirects; i++) {
+    const res = await fetch(currentUrl, {
+      redirect: 'manual',
+      signal,
+      headers: {
+        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64)',
+        Accept: 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8',
+        Cookie: cookies
+      }
+    });
+    const setCookies = res.headers.getSetCookie ? res.headers.getSetCookie() : (res.headers.get('set-cookie') ? [res.headers.get('set-cookie')] : []);
+    for (const c of setCookies) {
+      const name = c.split(';')[0];
+      const key = name.split('=')[0];
+      if (key && !cookies.split(';').some(p => p.trim().startsWith(key + '='))) {
+        cookies += (cookies ? '; ' : '') + name;
+      }
+    }
+    if ([301, 302, 303, 307, 308].includes(res.status)) {
+      const loc = res.headers.get('location');
+      if (!loc) return res;
+      currentUrl = new URL(loc, currentUrl).toString();
+      continue;
+    }
+    return res;
+  }
+  throw new Error('Muitos redirecionamentos');
+}
+
+function parseSefaAvailability(html) {
+  const checkedMatch = html.match(/(\d{2}\/\d{2}\/\d{4}\s+\d{2}:\d{2}:\d{2})/);
+  const rows = [];
+  const rowRe = /<tr class="linha(?:Impar|Par)Centralizada">([\s\S]*?)<\/tr>/g;
+  let m;
+  while ((m = rowRe.exec(html)) !== null) {
+    const cells = [...m[1].matchAll(/<td>([\s\S]*?)<\/td>/g)].map(c => c[1]);
+    if (cells.length < 9) continue;
+    const uf = cells[0].replace(/<[^>]+>/g, '').trim();
+    const statusOf = (cell) => {
+      if (/bola_verde/.test(cell)) return 'verde';
+      if (/bola_amarela/.test(cell)) return 'amarelo';
+      if (/bola_vermelho/.test(cell)) return 'vermelho';
+      return null;
+    };
+    rows.push({
+      uf,
+      autorizacao: statusOf(cells[1]),
+      retorno: statusOf(cells[2]),
+      inutilizacao: statusOf(cells[3]),
+      consultaProtocolo: statusOf(cells[4]),
+      statusServico: statusOf(cells[5]),
+      tempoMedio: cells[6].replace(/<[^>]+>/g, '').trim() || null,
+      consultaCadastro: statusOf(cells[7]),
+      recepcaoEvento: statusOf(cells[8])
+    });
+  }
+  const svcan = (html.match(/lblUsuariosSVCAN">([\s\S]*?)<\/span/) || [])[1];
+  const svcrs = (html.match(/lblUsuariosSVCRS">([\s\S]*?)<\/span/) || [])[1];
+  return {
+    checkedAt: checkedMatch ? checkedMatch[1] : null,
+    rows,
+    contingencia: {
+      svcan: svcan ? svcan.trim() : '',
+      svcrs: svcrs ? svcrs.trim() : ''
+    }
+  };
+}
+
+app.get('/api/toolbox/sefa-status', async (req, res) => {
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), 15000);
+  try {
+    const response = await fetchWithCookies(SEFAZ_URL, 5, controller.signal);
+    clearTimeout(timer);
+    if (!response.ok) {
+      return res.json({ ok: false, error: 'Portal respondeu HTTP ' + response.status });
+    }
+    const html = await response.text();
+    const parsed = parseSefaAvailability(html);
+    if (!parsed.rows.length) {
+      return res.json({ ok: false, error: 'Nao foi possivel interpretar a pagina de disponibilidade' });
+    }
+    res.json({ ok: true, ...parsed });
+  } catch (e) {
+    clearTimeout(timer);
+    res.json({ ok: false, error: e.name === 'AbortError' ? 'Tempo esgotado (15s)' : e.message });
+  }
+});
+
+// Toolbox - consulta CNPJ (ReceitaWS + enriquecimento IE via BrasilAPI com throttle + cache)
+const CNPJ_CACHE_FILE = path.join(__dirname, '..', 'toolbox-cache.json');
+const CNPJ_CACHE_TTL = 24 * 3600 * 1000;
+let LAST_BRASILAPI_AT = 0;
+const BRASILAPI_MIN_GAP = 25000;
+
+function loadCnpjCache() {
+  try {
+    if (fs.existsSync(CNPJ_CACHE_FILE)) {
+      return JSON.parse(fs.readFileSync(CNPJ_CACHE_FILE, 'utf8'));
+    }
+  } catch (e) { /* ignore */ }
+  return {};
+}
+function saveCnpjCache(cache) {
+  try { fs.writeFileSync(CNPJ_CACHE_FILE, JSON.stringify(cache), 'utf8'); } catch (e) { /* ignore */ }
+}
+
+// Chave Sintegra (sintegrabrasil.com.br - gratis, 10 req/min)
+const TOOLBOX_CONFIG_FILE = path.join(__dirname, '..', 'toolbox-config.json');
+function loadToolboxConfig() {
+  try {
+    if (fs.existsSync(TOOLBOX_CONFIG_FILE)) {
+      return JSON.parse(fs.readFileSync(TOOLBOX_CONFIG_FILE, 'utf8'));
+    }
+  } catch (e) { /* ignore */ }
+  return {};
+}
+function saveToolboxConfig(cfg) {
+  try { fs.writeFileSync(TOOLBOX_CONFIG_FILE, JSON.stringify(cfg, null, 2), 'utf8'); } catch (e) { /* ignore */ }
+}
+
+app.get('/api/toolbox/config', (req, res) => {
+  res.json({ sintegraConfigured: !!loadToolboxConfig().sintegraApiKey });
+});
+
+app.put('/api/toolbox/config', (req, res) => {
+  const { sintegraApiKey } = req.body || {};
+  const cfg = loadToolboxConfig();
+  if (sintegraApiKey !== undefined) {
+    cfg.sintegraApiKey = String(sintegraApiKey).trim();
+  }
+  saveToolboxConfig(cfg);
+  res.json({ ok: true, sintegraConfigured: !!cfg.sintegraApiKey });
+});
+
+async function fetchBrasilApi(cnpj) {
+  if (Date.now() - LAST_BRASILAPI_AT < BRASILAPI_MIN_GAP) return null;
+  LAST_BRASILAPI_AT = Date.now();
+  try {
+    const br = await fetch('https://brasilapi.com.br/api/cnpj/v1/' + cnpj, {
+      headers: { 'User-Agent': 'APS-Assistance/2.0' }
+    });
+    if (!br.ok) return null;
+    return await br.json();
+  } catch (e) {
+    return null;
+  }
+}
+
+app.get('/api/toolbox/cnpj/:cnpj', async (req, res) => {
+  const cnpj = (req.params.cnpj || '').replace(/\D/g, '').padStart(14, '0');
+  const forceRefresh = req.query.refresh === '1';
+  if (cnpj.length !== 14) return res.json({ ok: false, error: 'CNPJ deve ter 14 digitos' });
+  const cache = loadCnpjCache();
+  const cached = cache[cnpj];
+  if (!forceRefresh && cached && Date.now() - cached.at < CNPJ_CACHE_TTL) {
+    return res.json({ ok: true, source: 'cache', data: cached.data });
+  }
+  try {
+    // Fonte principal: ReceitaWS (confiavel)
+    const rw = await fetch('https://www.receitaws.com.br/v1/cnpj/' + cnpj);
+    if (rw.ok) {
+      const j = await rw.json();
+      if (j.status === 'ERROR') return res.json({ ok: false, error: j.message || 'Nao foi possivel consultar o CNPJ' });
+      const data = {
+        cnpj: j.cnpj,
+        razaoSocial: j.nome,
+        fantasia: j.fantasia,
+        situacao: j.situacao,
+        dataSituacao: j.data_situacao,
+        dataAbertura: j.abertura,
+        ie: null,
+        ieFonte: null,
+        inscricoes: [],
+        im: null,
+        porte: j.porte,
+        capitalSocial: j.capital_social,
+        naturezaJuridica: j.natureza_juridica,
+        atividadePrincipal: j.atividade_principal && j.atividade_principal[0] ? j.atividade_principal[0].texto : null,
+        cnaePrincipal: j.atividade_principal && j.atividade_principal[0] ? j.atividade_principal[0].code : null,
+        cnaesSecundarios: (j.atividades_secundarias || []).map(a => a.code + ' - ' + a.texto).slice(0, 10),
+        endereco: ((j.logradouro || '') + ', ' + (j.numero || '') + (j.complemento ? ', ' + j.complemento : '') + ' - ' + (j.bairro || '') + ', ' + (j.municipio || '') + '/' + (j.uf || '') + ' - CEP ' + (j.cep || '')).replace(/^, /, ''),
+        telefone: j.telefone || null,
+        email: j.email || null,
+        socios: (j.qsa || []).slice(0, 8).map(s => s.nome + (s.qual ? ' (' + s.qual + ')' : ''))
+      };
+      // Enriquecimento com IE (Sintegra se chave configurada, senao BrasilAPI)
+      let ieFromSintegra = false;
+      const cfg = loadToolboxConfig();
+      if (cfg.sintegraApiKey) {
+        try {
+          const st = await fetch('https://www.sintegrabrasil.com.br/api/v1/cnpj/' + cnpj, {
+            headers: { 'X-Api-Key': cfg.sintegraApiKey }
+          });
+          if (st.ok) {
+            const sj = await st.json();
+            if (Array.isArray(sj.inscricoes_estaduais) && sj.inscricoes_estaduais.length) {
+              data.inscricoes = sj.inscricoes_estaduais.map(ie => ({
+                ie: ie.inscricao_estadual,
+                ativa: !!ie.ativo,
+                uf: ie.uf || null,
+                atualizadoEm: ie.atualizado_em || null
+              }));
+              data.ie = data.inscricoes[0].ie;
+              data.ieFonte = 'sintegra';
+              ieFromSintegra = true;
+            }
+          }
+        } catch (e) { /* Sintegra indisponivel - segue para BrasilAPI */ }
+      }
+      if (!ieFromSintegra) {
+        const bj = await fetchBrasilApi(cnpj);
+        if (bj) {
+          const be = bj.estabelecimento || {};
+          if (be.inscricao_estadual) { data.ie = be.inscricao_estadual; data.ieFonte = 'brasilapi'; }
+          if (be.inscricao_municipal) data.im = be.inscricao_municipal;
+          if (!data.cnpj) data.cnpj = bj.cnpj;
+        }
+      }
+      cache[cnpj] = { at: Date.now(), data };
+      saveCnpjCache(cache);
+      return res.json({ ok: true, source: 'receitaws' + (data.ie ? '+brasilapi' : ''), data });
+    }
+    // Fallback: BrasilAPI direto
+    const bj = await fetchBrasilApi(cnpj);
+    if (bj) {
+      const e = bj.estabelecimento || {};
+      const data = {
+        cnpj: bj.cnpj,
+        razaoSocial: bj.razao_social,
+        fantasia: bj.nome_fantasia,
+        situacao: bj.descricao_situacao_cadastral,
+        dataSituacao: bj.data_situacao_cadastral,
+        dataAbertura: bj.data_inicio_atividade,
+        ie: e.inscricao_estadual || null,
+        ieFonte: e.inscricao_estadual ? 'brasilapi' : null,
+        inscricoes: [],
+        im: e.inscricao_municipal || null,
+        porte: bj.descricao_porte || (bj.porte && bj.porte.descricao) || null,
+        capitalSocial: bj.capital_social,
+        naturezaJuridica: bj.natureza_juridica,
+        atividadePrincipal: (e.atividade_principal && e.atividade_principal.descricao) || null,
+        cnaePrincipal: (e.atividade_principal && e.atividade_principal.code) || null,
+        cnaesSecundarios: (e.atividades_secundarias || []).map(a => a.code + ' - ' + a.descricao).slice(0, 10),
+        endereco: ((e.tipo_logradouro || '') + ' ' + (e.logradouro || '')).trim() + (e.numero ? ', ' + e.numero : '') + (e.complemento ? ', ' + e.complemento : '') + ' - ' + (e.bairro || '') + ', ' + ((e.municipio && e.municipio.descricao) || '') + '/' + ((e.estado && e.estado.sigla) || '') + ' - CEP ' + (e.cep || ''),
+        telefone: (e.ddd1 || e.telefone1) ? '(' + (e.ddd1 || '') + ') ' + (e.telefone1 || '') : null,
+        email: e.email || null,
+        socios: (bj.socios || []).slice(0, 8).map(s => s.nome_socio + (s.qualificacao_socio && s.qualificacao_socio.descricao ? ' (' + s.qualificacao_socio.descricao + ')' : ''))
+      };
+      cache[cnpj] = { at: Date.now(), data };
+      saveCnpjCache(cache);
+      return res.json({ ok: true, source: 'brasilapi', data });
+    }
+    return res.json({ ok: false, error: 'Falha ao consultar (HTTP ' + (rw.status || 0) + ') - limite de requisicoes atingido, tente novamente em 1 minuto' });
+  } catch (e) {
+    return res.json({ ok: false, error: e.message });
+  }
+});
+
+// Toolbox - validacao e decodificacao de chave de acesso NFe
+const NF_UF_CODES = { '11': 'RO', '12': 'AC', '13': 'AM', '14': 'RR', '15': 'PA', '16': 'AP', '17': 'TO', '21': 'MA', '22': 'PI', '23': 'CE', '24': 'RN', '25': 'PB', '26': 'PE', '27': 'AL', '28': 'SE', '29': 'BA', '31': 'MG', '32': 'ES', '33': 'RJ', '35': 'SP', '41': 'PR', '42': 'SC', '43': 'RS', '50': 'MS', '51': 'MT', '52': 'GO', '53': 'DF', '91': 'AN' };
+
+app.get('/api/toolbox/nfe/:chave', (req, res) => {
+  const chave = (req.params.chave || '').replace(/\D/g, '');
+  if (chave.length !== 44) return res.json({ ok: false, error: 'A chave deve ter 44 digitos' });
+  const base = chave.substring(0, 43);
+  let sum = 0, w = 2;
+  for (let i = base.length - 1; i >= 0; i--) {
+    sum += Number(base[i]) * w;
+    w = w === 9 ? 2 : w + 1;
+  }
+  const dv = sum % 11 < 2 ? 0 : 11 - (sum % 11);
+  const valida = dv === Number(chave[43]);
+  const uf = NF_UF_CODES[chave.substring(0, 2)] || 'Desconhecida';
+  const aamm = chave.substring(2, 6);
+  res.json({
+    ok: true,
+    valida,
+    chave,
+    uf: { codigo: chave.substring(0, 2), sigla: uf },
+    dataEmissao: aamm.substring(2, 4) + '/' + '20' + aamm.substring(0, 2),
+    cnpjEmitente: chave.substring(6, 20),
+    modelo: chave.substring(20, 22),
+    serie: chave.substring(22, 25),
+    numero: chave.substring(25, 34),
+tipoEmissao: chave.substring(34, 35)
+  });
+});
+
 app.post('/api/attachments/upload', (req, res) => {
   const { folder, filename, fileData, originalName } = req.body;
   
@@ -861,7 +1214,8 @@ app.get('/api/public/folders-tags', (req, res) => {
 
 // Public form - submit new error
 app.post('/api/public/submit', (req, res) => {
-  const { title, sistema, contexto, resolucao, tags } = req.body;
+  const { title: rawTitle, sistema, contexto, resolucao, tags } = req.body;
+  const title = (rawTitle || '').trim();
   if (!title || !sistema) {
     return res.status(400).json({ error: 'Titulo e sistema sao obrigatorios' });
   }

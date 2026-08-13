@@ -298,5 +298,63 @@ export const api = {
   async deleteDiaryEntry(id) {
     const res = await fetch(`${API_BASE}/diary/${id}`, { method: 'DELETE' });
     return res.json();
+  },
+
+  // Toolbox
+  async getToolboxCodes() {
+    const res = await fetch(`${API_BASE}/toolbox/codes`);
+    return res.json();
+  },
+
+  async createToolboxCode(codigo, descricao) {
+    const res = await fetch(`${API_BASE}/toolbox/codes`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ codigo, descricao })
+    });
+    return res.json();
+  },
+
+  async updateToolboxCode(id, data) {
+    const res = await fetch(`${API_BASE}/toolbox/codes/${id}`, {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(data)
+    });
+    return res.json();
+  },
+
+  async deleteToolboxCode(id) {
+    const res = await fetch(`${API_BASE}/toolbox/codes/${id}`, { method: 'DELETE' });
+    return res.json();
+  },
+
+  async getSefaStatus() {
+    const res = await fetch(`${API_BASE}/toolbox/sefa-status`);
+    return res.json();
+  },
+
+  async getCnpj(cnpj, forceRefresh) {
+    const res = await fetch(`${API_BASE}/toolbox/cnpj/${cnpj}${forceRefresh ? '?refresh=1' : ''}`);
+    return res.json();
+  },
+
+  async getToolboxConfig() {
+    const res = await fetch(`${API_BASE}/toolbox/config`);
+    return res.json();
+  },
+
+  async setToolboxConfig(sintegraApiKey) {
+    const res = await fetch(`${API_BASE}/toolbox/config`, {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ sintegraApiKey })
+    });
+    return res.json();
+  },
+
+  async getNfeChave(chave) {
+    const res = await fetch(`${API_BASE}/toolbox/nfe/${chave}`);
+    return res.json();
   }
 };

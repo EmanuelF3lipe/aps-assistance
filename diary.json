@@ -1,1 +1,56 @@
-[]
+[
+  {
+    "id": "1786622030075",
+    "title": "NE CAPAS - BOLETO",
+    "content": "Cancelar financieros errados e ajudar a gerar os novos",
+    "category": "ocorrencia",
+    "priority": "urgente",
+    "author": "emanuel",
+    "shift": "Manha",
+    "date": "13/08/2026",
+    "createdAt": "2026-08-13T11:53:50.075Z",
+    "resolved": true,
+    "resolvedAt": "2026-08-13T17:31:53.664Z",
+    "updatedAt": "2026-08-13T17:31:53.664Z"
+  },
+  {
+    "id": "1786622087895",
+    "title": "ATUALIZAÇÃO OPTIMUS",
+    "content": "Entrar em contato om gabriel saber as versões corretas e atualizar Audocar",
+    "category": "ocorrencia",
+    "priority": "normal",
+    "author": "emanuel",
+    "shift": "Manha",
+    "date": "13/08/2026",
+    "createdAt": "2026-08-13T11:54:47.895Z",
+    "resolved": true,
+    "updatedAt": "2026-08-13T17:31:58.101Z",
+    "resolvedAt": "2026-08-13T17:31:58.101Z"
+  },
+  {
+    "id": "1786622108015",
+    "title": "DFE UNIÃO BEBIDAS",
+    "content": "Verificar se o DFE está operante",
+    "category": "ocorrencia",
+    "priority": "baixa",
+    "author": "Anonimo",
+    "shift": "Manha",
+    "date": "13/08/2026",
+    "createdAt": "2026-08-13T11:55:08.015Z",
+    "resolved": true,
+    "updatedAt": "2026-08-13T17:32:00.732Z",
+    "resolvedAt": "2026-08-13T17:32:00.732Z"
+  },
+  {
+    "id": "1786634088269",
+    "title": "ABRIR CHAMADO JULIANA MULTMALHAS",
+    "content": "REFERENTE AO PROTOCOLO 20260813064304",
+    "category": "pendencia",
+    "priority": "normal",
+    "author": "Anonimo",
+    "shift": "Tarde",
+    "date": "13/08/2026",
+    "createdAt": "2026-08-13T15:14:48.269Z",
+    "resolved": false
+  }
+]

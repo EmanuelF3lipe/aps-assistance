@@ -49,6 +49,10 @@ export default function PublicForm({ onClose, folders: foldersProp, allTags: all
     t.toLowerCase().includes(tagSearch.toLowerCase()) && !selectedTags.includes(t)
   )
 
+  const folderNames = folders
+    .map(f => (typeof f === 'string' ? f : (f.name || f.path)))
+    .filter(Boolean)
+
   const handleSubmit = async () => {
     if (!form.title.trim() || !form.sistema) {
       setMessage('Preencha titulo e sistema')
@@ -145,11 +149,11 @@ export default function PublicForm({ onClose, folders: foldersProp, allTags: all
           />
         </div>
 
-        <div className="public-field">
-          <label>Sistema *</label>
-          <div className="public-radio-group">
-            {folders.map(f => (
-              <label key={f} className={`public-radio ${form.sistema === f ? 'selected' : ''}`}>
+          <div className="public-field">
+            <label>Sistema *</label>
+            <div className="public-radio-group">
+              {folderNames.map(f => (
+                <label key={f} className={`public-radio ${form.sistema === f ? 'selected' : ''}`}>
                 <input
                   type="radio"
                   name="sistema"

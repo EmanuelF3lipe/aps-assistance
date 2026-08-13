@@ -14,17 +14,20 @@ export default function ErrorPopup({ file, onClose, onEdit, onMove, folders }) {
   const [newTag, setNewTag] = useState('')
   const [uploading, setUploading] = useState(false)
   const [showPreview, setShowPreview] = useState(null)
+  const [fileName, setFileName] = useState(file?.filename || (file?.name ? file.name + '.md' : ''))
   const fileInputRef = useRef(null)
 
   useEffect(() => {
     if (file) {
+      setFileName(file.filename || (file.name ? file.name + '.md' : ''))
       loadData()
     }
   }, [file])
 
-  const loadData = async () => {
+  const loadData = async (name) => {
     if (!file || !file.folder) return
-    const filename = file.filename || file.name + '.md'
+    const filename = name || fileName || file.filename || (file.name ? file.name + '.md' : '')
+    if (!filename) return
     const res = await api.getFile(file.folder, filename)
     const fileContent = res.content || ''
     setContent(fileContent)
@@ -78,7 +81,7 @@ export default function ErrorPopup({ file, onClose, onEdit, onMove, folders }) {
   const handleAddTag = async () => {
     if (!newTag.trim()) return
     const updatedTags = [...tags, newTag.trim()]
-    const filename = file.filename || file.name + '.md'
+    const filename = fileName || file.filename || (file.name ? file.name + '.md' : '')
     await api.updateTags(file.folder, filename, updatedTags)
     setTags(updatedTags)
     setNewTag('')
@@ -87,20 +90,27 @@ export default function ErrorPopup({ file, onClose, onEdit, onMove, folders }) {
 
   const handleRemoveTag = async (tagToRemove) => {
     const updatedTags = tags.filter(t => t !== tagToRemove)
-    const filename = file.filename || file.name + '.md'
+    const filename = fileName || file.filename || (file.name ? file.name + '.md' : '')
     await api.updateTags(file.folder, filename, updatedTags)
     setTags(updatedTags)
   }
 
   const handleSave = async () => {
-    const filename = file.filename || file.name + '.md'
-    if (editTitle && editTitle !== filename.replace('.md', '')) {
-      await api.renameFile(file.folder, filename, editTitle)
+    const filename = fileName || file.filename || (file.name ? file.name + '.md' : '')
+    if (!filename) return
+    const baseName = filename.replace(/\.md$/i, '')
+    let finalFilename = filename
+    if (editTitle && editTitle !== baseName) {
+      const cleanTitle = editTitle.trim()
+      const newName = cleanTitle.endsWith('.md') ? cleanTitle : cleanTitle + '.md'
+      await api.renameFile(file.folder, filename, newName)
+      finalFilename = newName
     }
-    await api.updateFile(file.folder, filename, editContent)
+    await api.updateFile(file.folder, finalFilename, editContent)
+    setFileName(finalFilename)
     setContent(editContent)
     setIsEditing(false)
-    loadData()
+    loadData(finalFilename)
   }
 
   const handleCopy = () => {
@@ -109,7 +119,7 @@ export default function ErrorPopup({ file, onClose, onEdit, onMove, folders }) {
 
   const handleDelete = async () => {
     if (!confirm('Excluir este erro?')) return
-    const filename = file.filename || file.name + '.md'
+    const filename = fileName || file.filename || (file.name ? file.name + '.md' : '')
     await api.deleteFile(file.folder, filename)
     handleClose()
   }
@@ -118,7 +128,7 @@ export default function ErrorPopup({ file, onClose, onEdit, onMove, folders }) {
     const files = Array.from(e.target.files)
     if (files.length === 0) return
     setUploading(true)
-    const filename = file.filename || file.name + '.md'
+    const filename = fileName || file.filename || (file.name ? file.name + '.md' : '')
     for (const f of files) {
       const reader = new FileReader()
       reader.onload = async (ev) => {
@@ -155,7 +165,7 @@ export default function ErrorPopup({ file, onClose, onEdit, onMove, folders }) {
     if (onMove) {
       onMove(targetFolder)
     } else {
-      const filename = file.filename || file.name + '.md'
+      const filename = fileName || file.filename || (file.name ? file.name + '.md' : '')
       await api.moveFile(file.folder, filename, targetFolder)
       handleClose()
     }

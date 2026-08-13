@@ -45,6 +45,9 @@ export default function DiarioPanel() {
   }
 
   const toggleResolved = async (entry) => {
+    if (!entry.resolved) {
+      if (!confirm('Confirmar conclusao desta tarefa?')) return
+    }
     await api.updateDiaryEntry(entry.id, { resolved: !entry.resolved })
     await loadEntries()
   }
@@ -244,12 +247,12 @@ export default function DiarioPanel() {
               <div
                 key={entry.id}
                 style={{
-                  background: 'var(--bg-card)',
-                  border: `1px solid ${entry.resolved ? 'var(--border-color)' : cat.color + '40'}`,
-                  borderLeft: `4px solid ${cat.color}`,
+                  background: entry.resolved ? 'rgba(16, 185, 129, 0.07)' : 'var(--bg-card)',
+                  border: `1px solid ${entry.resolved ? '#10b98160' : cat.color + '40'}`,
+                  borderLeft: `4px solid ${entry.resolved ? '#10b981' : cat.color}`,
                   borderRadius: '10px',
                   padding: '14px 16px',
-                  opacity: entry.resolved ? 0.6 : 1
+                  opacity: entry.resolved ? 0.85 : 1
                 }}
               >
                 <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', gap: '10px' }}>
@@ -286,8 +289,20 @@ export default function DiarioPanel() {
                         </span>
                       )}
                       {entry.resolved && (
-                        <span style={{ color: 'var(--accent-green)', fontSize: '11px', fontWeight: 600 }}>
-                          ✓ Resolvido
+                        <span style={{
+                          background: '#10b98120',
+                          color: '#10b981',
+                          padding: '2px 10px',
+                          borderRadius: '4px',
+                          fontSize: '10px',
+                          fontWeight: 700,
+                          textTransform: 'uppercase',
+                          display: 'flex',
+                          alignItems: 'center',
+                          gap: '4px',
+                          border: '1px solid #10b98140'
+                        }}>
+                          <FiCheck size={10} /> Concluido
                         </span>
                       )}
                     </div>
@@ -299,9 +314,12 @@ export default function DiarioPanel() {
                         {entry.content}
                       </p>
                     )}
-                    <div style={{ display: 'flex', gap: '12px', marginTop: '6px', fontSize: '11px', color: 'var(--text-muted)' }}>
+                    <div style={{ display: 'flex', gap: '12px', marginTop: '6px', fontSize: '11px', color: 'var(--text-muted)', flexWrap: 'wrap' }}>
                       <span><FiCalendar size={12} /> {entry.date}</span>
                       {entry.author && <span><FiUser size={10} /> {entry.author}</span>}
+                      {entry.resolved && entry.resolvedAt && (
+                        <span style={{ color: '#10b981' }}><FiCheck size={10} /> Concluido em {new Date(entry.resolvedAt).toLocaleDateString('pt-BR')}</span>
+                      )}
                     </div>
                   </div>
                   <div style={{ display: 'flex', gap: '4px', flexShrink: 0 }}>
@@ -313,16 +331,22 @@ export default function DiarioPanel() {
                     </button>
                     <button
                       onClick={() => toggleResolved(entry)}
+                      title={entry.resolved ? 'Reabrir tarefa' : 'Marcar como concluida'}
                       style={{
-                        background: entry.resolved ? 'var(--accent-green)' : 'var(--bg-tertiary)',
-                        border: `1px solid ${entry.resolved ? 'var(--accent-green)' : 'var(--border-color)'}`,
-                        color: entry.resolved ? '#fff' : 'var(--text-muted)',
+                        background: entry.resolved ? 'linear-gradient(135deg, #10b981, #059669)' : 'var(--bg-tertiary)',
+                        border: `1px solid ${entry.resolved ? '#10b981' : 'var(--border-color)'}`,
+                        color: entry.resolved ? '#fff' : 'var(--accent-green)',
                         borderRadius: '6px',
-                        padding: '6px 8px',
-                        cursor: 'pointer'
+                        padding: '6px 12px',
+                        cursor: 'pointer',
+                        display: 'flex',
+                        alignItems: 'center',
+                        gap: '5px',
+                        fontSize: '12px',
+                        fontWeight: entry.resolved ? 600 : 500
                       }}
                     >
-                      <FiCheck size={14} />
+                      <FiCheck size={14} /> {entry.resolved ? 'Reabrir' : 'Concluir'}
                     </button>
                     <button
                       onClick={() => handleDelete(entry.id)}

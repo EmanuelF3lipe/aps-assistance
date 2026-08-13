@@ -1,5 +1,5 @@
 import { useState } from 'react'
-import { FiArrowRight, FiTool, FiBook } from 'react-icons/fi'
+import { FiArrowRight, FiTool, FiBook, FiCpu } from 'react-icons/fi'
 
 const MODULES = [
   {
@@ -17,6 +17,14 @@ const MODULES = [
     icon: <FiBook size={28} />,
     accent: '#4a7c59',
     tagline: 'Comunique ocorrencias entre turnos'
+  },
+  {
+    id: 'ferramentas',
+    name: 'CAIXA DE FERRAMENTAS',
+    subtitle: 'Utilidades do plantao',
+    icon: <FiCpu size={28} />,
+    accent: '#ef4444',
+    tagline: 'Calculos, SEFAZ, codigos e CFOP na hora'
   }
 ]
 
