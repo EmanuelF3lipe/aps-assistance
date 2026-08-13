@@ -1,0 +1,47 @@
+# rejeição agilis total do pagamento menor que o total nota
+
+Criado em: 10 de junho de 2026 07:41
+Sistema: Ágilis
+Resolução (passo a passo): usa sql salvo abaixo:
+
+/* para usar use o ultimo select primeiro, após sso o primeiro update depois o segundo */
+UPDATE CUPOMPAG CP
+SET CP.VALOR =
+    ROUND(
+      (CP.VALOR /
+        (SELECT SUM(CP2.VALOR)
+           FROM CUPOMPAG CP2
+          WHERE CP2.CODCUPOM = CP.CODCUPOM)
+      )
+      *
+        (SELECT SUM(CI.PRECOVEND)
+           FROM CUPOMITEM CI
+          WHERE CI.CODCUPOM = CP.CODCUPOM)
+    , 2)
+WHERE CP.CODCUPOM IN ( 2109,        
+2124,        
+2125,        
+2132   );
+
+
+UPDATE CUPOM C
+SET C.VALOR_TOTAL =
+    ROUND(
+        (SELECT SUM(CI.PRECOVEND)
+           FROM CUPOMITEM CI
+          WHERE CI.CODCUPOM = C.CODCUPOM)
+    , 2)
+WHERE C.CODCUPOM IN ( 2109,        
+2124,        
+2125,        
+2132   );
+
+
+select
+c.CODCUPOM || ','
+from
+CUPOM c
+where
+c.LIDO = '-2'
+
+Última edição: 10 de junho de 2026 07:44

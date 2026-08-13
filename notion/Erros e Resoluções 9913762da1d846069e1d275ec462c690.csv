@@ -1,0 +1,141 @@
+﻿Erro/Duvida,Sistema,Tags,Última edição,Contexto / Quando acontece,Criado em,Resolução (passo a passo),Como Fazer:,Foto do erro
+"BOLETO , IMPRESSO NORMAL E ENVIADO SIGLA PARA POR NO BANCO",SCG-win,,16 de julho de 2026 08:41,,8 de julho de 2026 09:11,"N - NORMAL
+S- IMPRESSO
+E - ENVIADO",,
+SVC desabilitado pela sefaz de origem,SGNFE,,16 de julho de 2026 08:41,,7 de julho de 2026 08:06,ir no SGNF@ e trocar a forma de emissão da nota (no 06),,
+Pedidos Presos no Ágilis com NF já Emitida(disphel),SCG-win,Informação,15 de julho de 2026 08:33,"Quando o pedido de venda perde o vínculo com a nota fiscal emitida, fazendo com que o Ágilis continue listando o pedido para importação e emissão de cupom de forma indevida.",15 de junho de 2026 07:32,"Identificou-se que o campo codnfvenda estava em branco/nulo na tabela de pedidos (pedvend).
+
+Localize o código da Nota Fiscal de Venda correspondente ao pedido.
+
+Insira/vincule manualmente o código da NF (codnfvenda) diretamente no respectivo pedido de venda (pedvend) para atualizar o status e sumir da lista do Ágilis.",,
+Estorno de Nota de Entrada (Erro do Cliente),SCG-win,Onde ir Para fazer X,15 de junho de 2026 07:32,"O cliente tenta realizar o estorno de uma nota fiscal de entrada, mas o sistema bloqueia a operação porque os itens já geraram movimentação de estoque.",15 de junho de 2026 07:31,"Para permitir o estorno mesmo com o estoque movimentado, é necessário ativar um parâmetro específico no sistema.
+
+Acesse as configurações de parâmetros e ative a opção: ""Não validar estorno de itens sem estoque"".
+
+Após ativar o parâmetro, oriente o cliente a realizar o estorno da nota novamente e refazer o processo correto.",,
+Campo Fundo de Caixa Bloqueado,SCG-win,Informação,15 de junho de 2026 07:32,Ocorre ao tentar preencher o valor do fundo de caixa após o operador já ter iniciado ou aberto o caixa.,15 de junho de 2026 07:31,"Certifique-se de que o caixa ainda não foi aberto.
+
+O valor do campo ""Fundo de Caixa"" deve ser inserido obrigatoriamente antes de realizar a abertura oficial do caixa.",,
+Prorrogação de Boletos,SCG-win,Onde ir Para fazer X,15 de junho de 2026 07:32,Quando há necessidade de prorrogar o vencimento de boletos já emitidos e liberar lançamentos na área de cheques,15 de junho de 2026 07:30,"Identificar se o boleto já está registrado no banco.
+
+Caso o boleto já esteja em posse da instituição financeira, a alteração/solicitação de prorrogação deve ser resolvida diretamente com o banco responsável.",,
+Como liberar acesso de usuário no Agilis,Ágilis,Onde ir Para fazer X,12 de junho de 2026 07:40,Necessidade de conceder permissões para utilização do Agilis.,12 de junho de 2026 07:39,"Acessar o cadastro do usuário no Retaguarda.
+Abrir a aba Cupom Fiscal.
+Marcar todas as permissões disponíveis.
+Salvar as alterações.
+
+Observação: A senha padrão segue a regra definida pela empresa (código do usuário + senha cadastrada do usuário).",,
+Tabela que armazena Ordens de Serviço,Corpore,Informação,12 de junho de 2026 07:40,Necessidade de identificar a tabela do banco de dados que armazena as Ordens de Serviço.,12 de junho de 2026 07:38,A tabela responsável pelo armazenamento das Ordens de Serviço no Corpore é a OSCAD.,,
+Qual CST utilizar para produtos com CST de ST 500,SCG-win,Informação,12 de junho de 2026 07:40,Dúvida sobre a correspondência do CST utilizado em operações com Substituição Tributária.,12 de junho de 2026 07:37,"Quando o CST da operação for 500 (ICMS cobrado anteriormente por substituição tributária), o CST correspondente considerado é 60.",,
+CFOP para entrada de devolução emitida pelo cliente do usuario,SCG-win,Informação,12 de junho de 2026 07:40,O cliente recebeu uma nota de devolução emitida por seu próprio cliente e precisa dar entrada na nota.,12 de junho de 2026 07:37,"O CFOP de entrada deve ser definido conforme orientação da contabilidade da empresa. Em casos de devolução, é necessário consultar o contador para identificar o CFOP correto antes de realizar a entrada da nota.",,
+Como fazer nota avulsa (venda ou devolução),SCG-win,Onde ir Para fazer X,12 de junho de 2026 07:40,Cliente precisa emitir uma nota avulsa de venda ou devolução.,12 de junho de 2026 07:36,"Acessar a tela de Notas Fiscais.
+Inserir os dados da nota.
+Adicionar os produtos.
+Configurar a tributação de ICMS, quando aplicável.
+Gravar a nota.
+Emitir a NF-e.",,
+Rejeição: Emissor não habilitado para emissão da NF-e,SCG-win,,12 de junho de 2026 07:39,,10 de junho de 2026 08:13,Cliente precisa falar com a contabilidade.,,
+multiple rows ao gravar cupon fiscal,Ágilis,,10 de junho de 2026 07:44,,10 de junho de 2026 07:42,ir ao banco select em parametro com count em p.nome e group by 1 ver o que tem 2 ou mais e apagar eles.,,
+Como corrigir pulo de sequencial,SCG-win,,10 de junho de 2026 07:44,,10 de junho de 2026 07:42,"
+Inutilizando o sequencila no gerenciador",,
+rejeição agilis total do pagamento menor que o total nota,Ágilis,,10 de junho de 2026 07:44,,10 de junho de 2026 07:41,"usa sql salvo abaixo:
+
+/* para usar use o ultimo select primeiro, após sso o primeiro update depois o segundo */
+UPDATE CUPOMPAG CP
+SET CP.VALOR =
+    ROUND(
+      (CP.VALOR /
+        (SELECT SUM(CP2.VALOR)
+           FROM CUPOMPAG CP2
+          WHERE CP2.CODCUPOM = CP.CODCUPOM)
+      )
+      *
+        (SELECT SUM(CI.PRECOVEND)
+           FROM CUPOMITEM CI
+          WHERE CI.CODCUPOM = CP.CODCUPOM)
+    , 2)
+WHERE CP.CODCUPOM IN ( 2109,        
+2124,        
+2125,        
+2132   );
+
+
+UPDATE CUPOM C
+SET C.VALOR_TOTAL =
+    ROUND(
+        (SELECT SUM(CI.PRECOVEND)
+           FROM CUPOMITEM CI
+          WHERE CI.CODCUPOM = C.CODCUPOM)
+    , 2)
+WHERE C.CODCUPOM IN ( 2109,        
+2124,        
+2125,        
+2132   );
+
+
+select
+c.CODCUPOM || ','
+from
+CUPOM c
+where
+c.LIDO = '-2'
+",,
+Estoque insuficiente Officina,SCG-win,,9 de junho de 2026 07:29,,9 de junho de 2026 07:28,"Select em profilholote passando o cod prodfilho do erro, somatorio do camp qtdmov. vai em prodfilho e coloca estoque atual!",,
+Documento inexistente(amr),SCG-win,,22 de maio de 2026 15:40,boleto fica como documento inexistente,22 de maio de 2026 15:40,"1º Acessar a pasta do SCGWin.
+
+2º Entrar no caminho:
+`Boletos > Log > LogBoleto`.
+
+3º Localizar o JSON referente ao boleto que não apareceu, utilizando o valor líquido para identificar corretamente o arquivo.
+
+4º Abrir o JSON em um JSON Viewer.
+
+5º Localizar e copiar o ID do boleto dentro do JSON.
+
+6º Acessar o banco de dados.
+
+7º Realizar um `SELECT` na tabela `PESSOA` utilizando o CNPJ do cliente para localizar o `CODPESSOA`.
+
+8º Após localizar o `CODPESSOA`, realizar um `SELECT` na tabela `CONTA` utilizando o código encontrado.
+
+9º Identificar o registro onde o campo do ID estiver vazio.
+
+10º Inserir manualmente o ID obtido no JSON nesse campo vazio.
+
+11º Salvar a alteração e validar se o boleto volta a aparecer corretamente no sistema.
+",,
+"Para ver o total do credito ",SCG-win,Onde ir Para fazer X,12 de junho de 2026 07:40,,21 de maio de 2026 16:21,Mvimentação --> devolução de mecadoria,,
+Erro de Id dest,SGNFE,,9 de junho de 2026 07:31,"Acontece Por  2 motivos, CFOp errado , como CFOP de fora quando a nota é dentro ou virse  e versa, e também quando o Campo OPERAÇÃO na tela de nota fiscal não está vazio!
+
+tambem pode ocorrer devido a situação de partilha, verifica se é pra fora do estado do emitente, pergunta se é presencial, se não for e a partilha não tiver configurada, será  nescessario explicar todo o tramit, e perguntar se são eles que vão arcar com esse impsto",21 de maio de 2026 08:46,"Ir no NFVENDA/NFVENDAITEM e alterar para o CFOP correto (se for dentro 5 se for fora 6) , ou garantir que o campo OPERAÇÂo esteja vazio",,
+COMO CANCELAR NOTAS (CORPORE),Corpore,Onde ir Para fazer X,22 de maio de 2026 15:35,,20 de maio de 2026 16:59,"BASTA IR NA TELA DA NOTA
+MOVIMENTAÇÃO --> CAD.NOTA
+E APERTAR NO BOTÃO DE CANCELAR!",,
+Boleto não fica como impresso,SCG-win,,22 de maio de 2026 15:35,Boleto está com Nosso número e remessa porem não está marcado como impresso,11 de maio de 2026 09:38,"select
+*
+from
+conta n
+where
+n.codpendvend = 128362 <--- Numero do Boleto",,
+Erro ao logar no maxsale/mob,MaxSale/mob,,22 de maio de 2026 15:35,"email e senha corretos, porem não acessa",11 de maio de 2026 09:23,"verifique se está realmente cadastrado, verifique a validade da senha no retaguarda!",,
+007 - Registro não pode ser vinculado(nota de entrada),SCG-win,,11 de maio de 2026 09:20,"Ao gravar na tela de vencimentos, aparece o erro 007 registro nãopode ser vinculado(pois o campo centro de custo ta em branco)",11 de maio de 2026 09:14,Solicite ao cliente que aperte enter para que o campo de centro de custo apareça,,Erros%20e%20Resolu%C3%A7%C3%B5es/erro007.png
+Soma do valor das parcelas difere do Valor Liquido da Fatura,SGNFE,,12 de junho de 2026 08:48,NF presa,29 de abril de 2026 08:13,"Ir em CONTA , na parte DT venciment e alterar as datas para depois do dia de hoje(não pode ficar de dia anterior nem o dia de hoje tem que ser um dia depois)
+se a data tiver ok, ir no xml da nota pegar o valor em vlliq e ir em conta, alterar onde tem valor.",,
+" CSOSN incompativel na operacao com Nao Contribuinte [nItem:1]",SGNFE,,17 de abril de 2026 17:06,,17 de abril de 2026 17:04,"alterar o campo cst ",,
+Falha na validação dos dados da nota,SGNFE,,17 de abril de 2026 16:40,Erro ao enviar nf,17 de abril de 2026 16:40,"Ir e nfvenda item era pra ter sido tirado como venda presencial, pra ajeitar pedi ajuda a cristiano e  substitui o icms e cfop para presencial",,
+Conjunto nfc-e transmitidas excedido.,Ágilis,,17 de abril de 2026 08:10,Erro ao enviar cupom(Agilis),17 de abril de 2026 08:09,Bastar dar duplo click(Reenviar o cupom),,
+Carta de Correção,,Onde ir Para fazer X,17 de abril de 2026 16:41,,16 de abril de 2026 15:57,,Abra o SGNFE  e navegue ate a aba Carta de correção preencha os dados nescessarios e clique em enviar.,
+Total do PIS/ipi difere do somatório dos itens sujeitos ao ICMS,SGNFE,,12 de junho de 2026 10:22,Erro ao enviar uma NF,16 de abril de 2026 15:38,"Acessar o campo PISCST
+Alterar todos os registros para 07",,
+Estoque com lote duplicado,SCG-win,,17 de abril de 2026 08:10,Quando um Lote estiver Duplicado,16 de abril de 2026 15:37,"Identificar o lote duplicado
+Ajustar removendo a duplicidade (dar baixa no excedente)[dar o menos]",,
+CST do IPI incompatível com o código de enquadramento,SGNFE,,17 de abril de 2026 08:10,Erro ao enviar uma NF,16 de abril de 2026 15:36,"Acessar a tabela NFVENDAITEM
+Alterar o campo IPICST para 99",,
+Total do frete difere do somatório dos itens,SGNFE,,17 de abril de 2026 08:10,Erro em nota do SGNFE,16 de abril de 2026 15:28,"Verificar o valor do frete
+Ajustar o valor total da nota
+Conferir nas tabelas: VALORTOTAL e FRETEVL
+Esse erro ocorre quando o frete não foi somado corretamente",,
+MDF-e não encerrado para esta placa,SGNFE,,17 de abril de 2026 08:10,Manifesto com placa ja existe,16 de abril de 2026 15:25,"Acessar o SGNFe
+Localizar o MDF-e pela placa do veículo
+Solicitar o encerramento do documento",,
+IE do destinatário inválida,SGNFE,,17 de abril de 2026 08:10,Erro em Nota do sgnfe,16 de abril de 2026 15:24,Acessar o Sintegra → Consultar a IE correta do destinatário→Atualizar no sistema substituindo a antiga,,

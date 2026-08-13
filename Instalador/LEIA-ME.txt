@@ -1,0 +1,24 @@
+# APS Assistance - Instalador
+
+## Como usar
+
+1. Copie a pasta `Instalador` para o PC do amigo
+2. Execute `Instalar.bat` como Administrador
+3. Pronto! Um atalho sera criado na area de trabalho
+
+## Requisitos
+
+- Node.js instalado (https://nodejs.org)
+- Windows 10 ou superior
+
+## Como funciona
+
+O instalador vai:
+- Criar uma pasta no Desktop
+- Copiar todos os arquivos do projeto
+- Instalar dependencias automaticamente
+- Criar um atalho na area de trabalho
+
+## Para usar
+
+Basta clicar no atalho "APS Assistance" na area de trabalho.
