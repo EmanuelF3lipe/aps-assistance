@@ -1,4 +1,13 @@
-﻿import TelegramBot from 'node-telegram-bot-api';
+﻿// ============================================================================
+// APS ASSISTANCE - Bot do Telegram
+// ----------------------------------------------------------------------------
+// Implementa um bot com teclados inline para:
+//   - Navegar pastas e erros catalogados (.md em /notion)
+//   - Buscar erros por palavra-chave e listar por tags
+//   - Criar novos erros via wizard em etapas (pasta -> titulo -> descricao)
+//   - Receber notificacoes de eventos do servidor (novo/alterado/excluido)
+// ============================================================================
+import TelegramBot from 'node-telegram-bot-api';
 import fs from 'fs';
 import path from 'path';
 import { fileURLToPath } from 'url';
@@ -8,6 +17,8 @@ const __dirname = path.dirname(__filename);
 const NOTION_PATH = path.join(__dirname, '..', '..', 'notion');
 const TRASH_FOLDER = '_erros_nao_catalogados';
 
+// Estado do bot: instancia, chat ativo, sessoes do wizard de criacao
+// e um "index" de botoes (mapeia IDs curtos para pastas/arquivos/tags)
 let bot = null;
 let chatId = null;
 const userSessions = new Map();
@@ -15,10 +26,12 @@ const indexMap = new Map();
 const pendingMessages = [];
 let idCounter = 0;
 
+// Registro e resolucao de IDs dos botoes inline (reiniciado a cada navegacao)
 function resetIndex() { indexMap.clear(); idCounter = 0; }
 function regId(data) { const id = ++idCounter; indexMap.set(id, data); return id; }
 function getData(id) { return indexMap.get(id); }
 
+// Acessos ao armazenamento: listar pastas, arquivos .md, ler conteudo e tags
 function getAllFolders() {
   if (!fs.existsSync(NOTION_PATH)) return [];
   return fs.readdirSync(NOTION_PATH)
@@ -44,6 +57,7 @@ function getTags(content) {
   return m[1].split('\n').filter(t => t.startsWith('-')).map(t => t.replace('- ', '').trim()).filter(Boolean);
 }
 
+// Busca por palavra-chave no nome e conteudo dos arquivos (todas as pastas)
 function searchFiles(q) {
   const results = [];
   const lower = q.toLowerCase();
@@ -58,6 +72,7 @@ function searchFiles(q) {
   return results;
 }
 
+// Agrupa arquivos por tag, extraindo a secao "## Tags" do markdown
 function getAllTags() {
   const tags = {};
   for (const folder of getAllFolders()) {
@@ -69,12 +84,15 @@ function getAllTags() {
   return tags;
 }
 
+// Cria o arquivo .md do erro (cria a pasta caso nao exista)
 function createFile(folder, filename, content) {
   const fp = path.join(NOTION_PATH, folder);
   if (!fs.existsSync(fp)) fs.mkdirSync(fp, { recursive: true });
   fs.writeFileSync(path.join(fp, filename + '.md'), content, 'utf8');
 }
 
+// Monta uma "previa" legivel do markdown para exibicao no Telegram:
+// cabeçalho, secao de resolucao, observacao e tags (limite de 3000 chars)
 function buildPreview(content) {
   const sections = {};
   let header = [];
@@ -94,9 +112,12 @@ function buildPreview(content) {
   return r.substring(0, 3000);
 }
 
+// Emojis por sistema conhecido e helper para montar botoes inline
 const EMOJI = { scgwin: '🖥️', agilis: '⚙️', corpore: '🏢', sgnfe: '📄', Maxsale: '🛒' };
 const btn = (text, data) => ({ text, callback_data: data });
 
+// ===== INICIALIZACAO DO BOT =====
+// Cria a instancia com polling e registra todos os comandos e callbacks
 export function initBot(token) {
   if (!token) { console.log('   Telegram Bot: desativado'); return null; }
   if (bot) { try { bot.stopPolling(); } catch (e) {} }
@@ -104,6 +125,8 @@ export function initBot(token) {
   chatId = null;
   console.log('   Telegram Bot: ativo');
 
+  // /start: registra o chat para notificacoes, libera mensagens pendentes
+  // e mostra o menu principal com teclado inline
   bot.onText(/\/start(.*)/, (msg, match) => {
     const cid = msg.chat.id;
     chatId = cid;
@@ -125,11 +148,13 @@ export function initBot(token) {
     }).catch(err => console.log('Erro /start:', err.message));
   });
 
+  // /ajuda e /help: instrucoes de uso do bot
   bot.onText(/\/ajuda|\/help/, (msg) => {
     const cid = msg.chat.id;
     bot.sendMessage(cid, '*❓ Como usar:*\n\n📂 *Pastas* - Navegar pastas e erros\n🔍 *Buscar* - Buscar por palavra-chave\n➕ *Criar* - Criar novo erro\n🏷️ *Tags* - Ver erros por tag\n\nClique nos botoes para navegar!', { parse_mode: 'Markdown' });
   });
 
+  // /stop: desativa o bot (para o polling e libera a instancia)
   bot.onText(/\/stop/, (msg) => {
     const cid = msg.chat.id;
     bot.sendMessage(cid, '🛑 Bot desativado. Para reativar, envie /start');
@@ -137,11 +162,15 @@ export function initBot(token) {
     bot = null;
   });
 
+  // ===== TECLADOS INLINE (callback_query) =====
+  // Trata os cliques nos botoes: menu, pastas (vf*), tags (vt*),
+  // criacao de erro (cf*). Os prefixos apontam para o indexMap
   bot.on('callback_query', (query) => {
     const cid = query.message.chat.id;
     const data = query.data;
     bot.answerCallbackQuery(query.id).catch(() => {});
 
+    // m_menu: volta ao menu principal (limpa a navegacao atual)
     if (data === 'm_menu') {
       resetIndex();
       userSessions.delete(cid);
@@ -155,6 +184,7 @@ export function initBot(token) {
       });
     }
 
+    // m_pastas: lista as pastas com contagem de erros, cada uma com botao proprio
     if (data === 'm_pastas') {
       resetIndex();
       const folders = getAllFolders();
@@ -169,11 +199,13 @@ export function initBot(token) {
       bot.sendMessage(cid, '*📂 Pastas:*', { parse_mode: 'Markdown', reply_markup: { inline_keyboard: buttons } });
     }
 
+    // m_buscar: inicia o wizard de busca (aguarda texto na proxima mensagem)
     if (data === 'm_buscar') {
       userSessions.set(cid, { step: 'buscar' });
       bot.sendMessage(cid, '*🔍 Digite o que deseja buscar:*', { parse_mode: 'Markdown' });
     }
 
+    // m_tags: lista as tags disponiveis com a quantidade de erros de cada uma
     if (data === 'm_tags') {
       resetIndex();
       const tags = getAllTags();
@@ -184,6 +216,7 @@ export function initBot(token) {
       bot.sendMessage(cid, '*🏷️ Tags:*', { parse_mode: 'Markdown', reply_markup: { inline_keyboard: buttons } });
     }
 
+    // m_criar: inicio do wizard de criacao - primeiro passo escolhe a pasta
     if (data === 'm_criar') {
       const folders = getAllFolders();
       if (!folders.length) return bot.sendMessage(cid, '📭 Crie uma pasta no app primeiro.');
@@ -198,6 +231,8 @@ export function initBot(token) {
       bot.sendMessage(cid, '*❓ Como usar:*\n\n📂 *Pastas* - Navegar pastas e erros\n🔍 *Buscar* - Buscar por palavra-chave\n➕ *Criar* - Criar novo erro\n🏷️ *Tags* - Ver erros por tag\n\nClique nos botoes para navegar!', { parse_mode: 'Markdown' });
     }
 
+    // vf*: navegacao de pasta (lista arquivos) ou visualizacao do erro
+// (previa formatada) a partir dos dados registrados no indexMap
     if (data.startsWith('vf')) {
       const id = parseInt(data.substring(2));
       const item = getData(id);
@@ -227,6 +262,7 @@ export function initBot(token) {
       }
     }
 
+    // vt*: cliques em uma tag - lista os erros que possuem aquela tag
     if (data.startsWith('vt')) {
       const id = parseInt(data.substring(2));
       const item = getData(id);
@@ -240,6 +276,8 @@ export function initBot(token) {
       bot.sendMessage(cid, '*🏷️ ' + item.name + '* (' + files.length + '):', { parse_mode: 'Markdown', reply_markup: { inline_keyboard: buttons } });
     }
 
+    // cf*: pasta escolhida no wizard de criacao - avanca para o passo 1/2
+// (titulo), guardando a pasta na sessao do usuario
     if (data.startsWith('cf')) {
       const id = parseInt(data.substring(2));
       const item = getData(id);
@@ -255,6 +293,9 @@ export function initBot(token) {
     }
   });
 
+    // ===== MENSAGENS DE TEXTO (wizard de criacao e busca) =====
+  // So processa mensagens quando o usuario esta em uma sessao ativa;
+  // direciona a entrada conforme o passo atual (buscar, create_name, create_desc)
   bot.on('message', (msg) => {
     const cid = msg.chat.id;
     const text = msg.text?.trim();
@@ -263,6 +304,7 @@ export function initBot(token) {
     const session = userSessions.get(cid);
     if (!session) return;
 
+    // Passo de busca: executa a pesquisa e mostra ate 8 resultados como botoes
     if (session.step === 'buscar') {
       userSessions.delete(cid);
       const results = searchFiles(text);
@@ -280,6 +322,7 @@ export function initBot(token) {
       return;
     }
 
+    // Passo create_name: guarda o titulo e pede descricao (passo 2/2)
     if (session.step === 'create_name') {
       session.data.name = text;
       session.step = 'create_desc';
@@ -290,6 +333,8 @@ export function initBot(token) {
       return;
     }
 
+    // Passo create_desc: monta o markdown completo do erro, salva o arquivo,
+// encerra a sessao e confirma ao usuario
     if (session.step === 'create_desc') {
       const { folder, name } = session.data;
       const now = new Date();
@@ -308,6 +353,7 @@ export function initBot(token) {
     }
   });
 
+    // Tratamento de erros do polling (conflitos de token, rede, etc.)
   bot.on('polling_error', (err) => {
     console.log('   Telegram polling error:', err.message);
   });
@@ -315,6 +361,9 @@ export function initBot(token) {
   return bot;
 }
 
+// ===== NOTIFICACOES =====
+// Envia mensagem ao chat registrado via /start; se ainda nao houver chat,
+// acumula em pendingMessages para entrega no proximo /start
 export function sendNotification(message) {
   if (!bot) return;
   if (chatId) {
@@ -324,6 +373,7 @@ export function sendNotification(message) {
   }
 }
 
+// Para o polling e libera a instancia do bot, limpando estado e fila
 export function stopBot() {
   if (bot) {
     try {
@@ -336,4 +386,5 @@ export function stopBot() {
   }
 }
 
+// Acesso a instancia atual (usado pelo servidor para diagnostico)
 export function getBot() { return bot; }

@@ -1,3 +1,13 @@
+// ============================================================================
+// APS ASSISTANCE - Servidor Backend (Express + Socket.IO)
+// ----------------------------------------------------------------------------
+// Responsavel por:
+//   - Servir a API REST consumida pelo frontend React (dist)
+//   - Armazenar os erros catalogados como arquivos .md na pasta /notion
+//   - Disponibilizar busca, tags, favoritos, lixeira, diario e relatorios
+//   - Toolbox: codigos de observacao, status SEFAZ, consulta CNPJ e chave NFe
+//   - Gerenciar o bot do Telegram (inicializacao, notificacoes e encerramento)
+// ============================================================================
 import express from 'express';
 import fs from 'fs';
 import path from 'path';
@@ -8,15 +18,18 @@ import { createServer } from 'http';
 import { Server } from 'socket.io';
 import { initBot, sendNotification, stopBot } from './telegram-bot.js';
 
+// Encerramento gracioso do servidor ao receber SIGINT/SIGTERM
 process.on('SIGINT', () => handleQuit());
 process.on('SIGTERM', () => handleQuit());
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 
+// Arquivos de configuracao persistidos em JSON no diretorio do servidor
 const BOT_CONFIG_FILE = path.join(__dirname, '..', 'bot-config.json');
 const DIARY_FILE = path.join(__dirname, '..', 'diary.json');
 
+// Carrega a configuracao do bot (token do Telegram) a partir do arquivo
 function loadBotConfig() {
   if (fs.existsSync(BOT_CONFIG_FILE)) {
     try { return JSON.parse(fs.readFileSync(BOT_CONFIG_FILE, 'utf8')); } catch (e) {}
@@ -29,6 +42,11 @@ const httpServer = createServer(app);
 const io = new Server(httpServer, { cors: { origin: '*' } });
 const PORT = 3000;
 
+// ===== APONTAMENTOS DE ARMAZENAMENTO EM ARQUIVO =====
+// O sistema persiste tudo em disco (sem banco de dados):
+//   - NOTION_PATH: raiz com as pastas de erros (.md + _images)
+//   - favorites/folder-colors/reports: arquivos JSON de estado da interface
+//   - TRASH_FOLDER: pasta "_erros_nao_catalogados" que funciona como lixeira
 const NOTION_PATH = path.join(__dirname, '..', '..', 'notion');
 const FAVORITES_FILE = path.join(__dirname, '..', 'favorites.json');
 const REPORTS_FILE = path.join(__dirname, '..', 'reports.json');
@@ -41,7 +59,9 @@ if (!fs.existsSync(IMAGES_DIR)) {
   fs.mkdirSync(IMAGES_DIR, { recursive: true });
 }
 
-// Parse multipart form data (simples, sem dependência)
+// ===== MIDDLEWARES =====
+// body parser JSON com limite ampliado (10mb) para uploads de anexos base64,
+// servir a build do frontend (dist) e a lixeira/pasta de imagens
 app.use(express.json({ limit: '10mb' }));
 
 // Criar pasta de lixo se não existir
@@ -58,6 +78,7 @@ app.get('/cadastrar', (req, res) => {
   res.sendFile(path.join(__dirname, '..', 'public', 'cadastrar.html'));
 });
 
+// Leitura/gravacao dos favoritos armazenados em favorites.json
 function loadFavorites() {
   if (fs.existsSync(FAVORITES_FILE)) {
     return JSON.parse(fs.readFileSync(FAVORITES_FILE, 'utf8'));
@@ -76,6 +97,9 @@ function getAllFolders() {
     .map(f => ({ name: f, path: f }));
 }
 
+// ===== FOLDERS (CRUD de pastas/sistemas) =====
+// Cada pasta em /notion representa um sistema; as rotas abaixo criam,
+// renomeiam e excluem pastas, notificando os clientes via socket.io
 app.get('/api/folders', (req, res) => {
   res.json(getAllFolders());
 });
@@ -107,6 +131,7 @@ app.put('/api/folders/:oldName', (req, res) => {
   res.json({ success: true });
 });
 
+// Exclui a pasta; os arquivos .md que ainda existirem sao movidos para a lixeira
 app.delete('/api/folders/:name', (req, res) => {
   const folderPath = resolveFolderPath(req.params.name);
   if (!folderPath) return res.status(404).json({ error: 'Pasta não encontrada' });
@@ -130,6 +155,8 @@ app.delete('/api/folders/:name', (req, res) => {
   res.json({ success: true, movedFiles: files.length });
 });
 
+// Resolve o caminho real de uma pasta comparando nomes normalizados em Unicode
+// (necessario pois o browser pode enviar a acentuacao de forma diferente)
 function resolveFolderPath(requestedFolder) {
   if (!fs.existsSync(NOTION_PATH)) return null;
   const dirs = fs.readdirSync(NOTION_PATH).filter(f => fs.statSync(path.join(NOTION_PATH, f)).isDirectory());
@@ -140,6 +167,9 @@ function resolveFolderPath(requestedFolder) {
   return null;
 }
 
+// ===== FILES (CRUD de erros em arquivos .md) =====
+// Cada erro catalogado e um arquivo markdown dentro da pasta do sistema.
+// Alteracoes emitem "data-changed" (socket.io) e notificam via Telegram
 app.get('/api/files/:folder', (req, res) => {
   const folderPath = resolveFolderPath(req.params.folder);
   if (!folderPath) return res.json([]);
@@ -206,6 +236,7 @@ app.delete('/api/file/:folder/:filename', (req, res) => {
 });
 
 // Atualizar tags de um arquivo
+// Remove a secao "## Tags" existente no markdown e grava a nova lista
 app.put('/api/file/:folder/:filename/tags', (req, res) => {
   const folderPath = resolveFolderPath(req.params.folder);
   if (!folderPath) return res.status(404).json({ error: 'Pasta não encontrada' });
@@ -272,6 +303,9 @@ app.put('/api/file/:folder/:filename/move', (req, res) => {
   res.json({ success: true });
 });
 
+// ===== SEARCH (busca simples e busca avancada) =====
+// Varre o conteudo de todos os .md buscando a palavra-chave (e as tags),
+// retornando trecho inicial do arquivo e as tags de cada resultado
 app.get('/api/search', (req, res) => {
   const query = req.query.q.toLowerCase();
   const results = [];
@@ -292,6 +326,8 @@ app.get('/api/search', (req, res) => {
   res.json(results);
 });
 
+// Busca avancada: combina palavra-chave, pasta, tags e intervalo de datas
+// (a data e extraida do campo "Criado em" presente no markdown)
 app.get('/api/search/advanced', (req, res) => {
   const { q, folder, tags, dateFrom, dateTo } = req.query;
   const query = q ? q.toLowerCase() : '';
@@ -352,6 +388,9 @@ app.get('/api/search/advanced', (req, res) => {
   res.json(results);
 });
 
+// ===== STATS =====
+// Estatisticas gerais: total de erros por pasta, arquivos recentemente
+// modificados (top 10) e contagem de uso de cada tag
 app.get('/api/stats', (req, res) => {
   const folders = getAllFolders();
   const stats = { total: 0, byFolder: {}, recentFiles: [], tags: {} };
@@ -379,6 +418,8 @@ app.get('/api/stats', (req, res) => {
   res.json(stats);
 });
 
+// ===== FAVORITES (erros favoritados) =====
+// CRUD de favoritos persistido em favorites.json, sem duplicatas
 app.get('/api/favorites', (req, res) => {
   res.json(loadFavorites());
 });
@@ -403,6 +444,8 @@ app.delete('/api/favorites/:folder/:filename', (req, res) => {
   res.json({ success: true });
 });
 
+// ===== TAGS =====
+// Mapa de todas as tags existentes nos arquivos, com a lista de erros de cada uma
 app.get('/api/tags', (req, res) => {
   const tags = {};
   const folders = getAllFolders();
@@ -424,6 +467,9 @@ app.get('/api/tags', (req, res) => {
   res.json(tags);
 });
 
+// ===== TRASH (lixeira de erros nao catalogados) =====
+// Arquivos excluidos vao para "_erros_nao_catalogados" com o prefixo
+// "pastaOrigem__nome_arquivo", permitindo restauracao ou exclusao definitiva
 // Trash endpoints
 app.get('/api/trash', (req, res) => {
   const trashDir = path.join(NOTION_PATH, TRASH_FOLDER);
@@ -446,6 +492,8 @@ app.get('/api/trash', (req, res) => {
   res.json(files);
 });
 
+// Devolve o arquivo para a pasta de origem (reconstituida a partir do prefixo,
+// com fallback para "scgwin" caso o nome nao siga o padrao)
 app.put('/api/trash/restore/:filename', (req, res) => {
   const { filename } = req.params;
   const trashDir = path.join(NOTION_PATH, TRASH_FOLDER);
@@ -471,6 +519,7 @@ app.put('/api/trash/restore/:filename', (req, res) => {
   res.json({ success: true });
 });
 
+// Exclusao definitiva de um arquivo da lixeira e esvaziamento total da lixeira
 app.delete('/api/trash/:filename', (req, res) => {
   const { filename } = req.params;
   const trashDir = path.join(NOTION_PATH, TRASH_FOLDER);
@@ -496,6 +545,8 @@ app.delete('/api/trash', (req, res) => {
   res.json({ success: true });
 });
 
+// ===== FOLDER COLORS (cores personalizadas por pasta) =====
+// Persistidas em folder-colors.json; cores default para os sistemas conhecidos
 // Folder Colors
 function loadFolderColors() {
   if (!fs.existsSync(FOLDER_COLORS_FILE)) {
@@ -540,6 +591,8 @@ app.delete('/api/folder-colors/:folder', (req, res) => {
   res.json({ success: true });
 });
 
+// ===== REPORTS (relatorios pre-definidos) =====
+// CRUD de relatorios persistido em reports.json, iniciando com defaults
 // Reports CRUD
 function loadReports() {
   if (!fs.existsSync(REPORTS_FILE)) {
@@ -605,6 +658,9 @@ app.delete('/api/reports/:id', (req, res) => {
   res.json({ success: true });
 });
 
+// ===== DIARY (diario de ocorrencias) =====
+// Registro diario de ocorrencias com categoria, prioridade, autor e turno;
+// suporta filtro por data e busca por texto (persistido em diary.json)
 // Diary CRUD
 function loadDiary() {
   if (!fs.existsSync(DIARY_FILE)) {
@@ -679,6 +735,8 @@ app.delete('/api/diary/:id', (req, res) => {
   res.json({ success: true });
 });
 
+// ===== TOOLBOX - CODIGOS DE OBSERVACAO =====
+// Cadastro de codigos padrao usados nas observacoes (persistido em toolbox.json)
 // Toolbox - codigos de observacao
 const TOOLBOX_FILE = path.join(__dirname, '..', 'toolbox.json');
 
@@ -726,9 +784,13 @@ app.delete('/api/toolbox/codes/:id', (req, res) => {
   res.json({ success: true });
 });
 
+// ===== TOOLBOX - STATUS SEFAZ (scraping do portal oficial) =====
+// Consulta a pagina de disponibilidade da NFe, seguindo redirecionamentos
+// com cookie jar manual e fazendo parsing das tabelas de status por UF
 // Toolbox - status SEFAZ (consulta pelo servidor, com cookie jar e parsing do portal oficial)
 const SEFAZ_URL = 'https://www.nfe.fazenda.gov.br/portal/disponibilidade.aspx';
 
+// Fetch com suporte a cookies de sessao (ASPSESSIONID etc.) e redirecionamentos manuais
 async function fetchWithCookies(url, maxRedirects = 5, signal) {
   let cookies = '';
   let currentUrl = url;
@@ -761,6 +823,9 @@ async function fetchWithCookies(url, maxRedirects = 5, signal) {
   throw new Error('Muitos redirecionamentos');
 }
 
+// Extrai o HTML da tabela de disponibilidade: status por UF (verde/amarelo/
+// vermelho) em cada servico (autorizacao, retorno, inutilizacao, etc.)
+// e a quantidade de usuarios em contingencia SVC-AN/SVC-RS
 function parseSefaAvailability(html) {
   const checkedMatch = html.match(/(\d{2}\/\d{2}\/\d{4}\s+\d{2}:\d{2}:\d{2})/);
   const rows = [];
@@ -800,6 +865,8 @@ function parseSefaAvailability(html) {
   };
 }
 
+// Endpoint da consulta SEFAZ: timeout de 15s e resposta normalizada
+// ({ ok: true, rows, contingencia } ou { ok: false, error })
 app.get('/api/toolbox/sefa-status', async (req, res) => {
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), 15000);
@@ -821,6 +888,9 @@ app.get('/api/toolbox/sefa-status', async (req, res) => {
   }
 });
 
+// ===== TOOLBOX - CONSULTA CNPJ =====
+// Fonte principal: ReceitaWS. Enriquecimento da Inscricao Estadual via
+// Sintegra (se chave configurada) ou BrasilAPI, com throttle e cache em disco
 // Toolbox - consulta CNPJ (ReceitaWS + enriquecimento IE via BrasilAPI com throttle + cache)
 const CNPJ_CACHE_FILE = path.join(__dirname, '..', 'toolbox-cache.json');
 const CNPJ_CACHE_TTL = 24 * 3600 * 1000;
@@ -840,6 +910,7 @@ function saveCnpjCache(cache) {
 }
 
 // Chave Sintegra (sintegrabrasil.com.br - gratis, 10 req/min)
+// Configuracao da Toolbox persistida em toolbox-config.json
 const TOOLBOX_CONFIG_FILE = path.join(__dirname, '..', 'toolbox-config.json');
 function loadToolboxConfig() {
   try {
@@ -867,6 +938,8 @@ app.put('/api/toolbox/config', (req, res) => {
   res.json({ ok: true, sintegraConfigured: !!cfg.sintegraApiKey });
 });
 
+// Consulta a BrasilAPI com espacamento minimo de 25s entre chamadas
+// (API publica tem limite agressivo por IP)
 async function fetchBrasilApi(cnpj) {
   if (Date.now() - LAST_BRASILAPI_AT < BRASILAPI_MIN_GAP) return null;
   LAST_BRASILAPI_AT = Date.now();
@@ -881,6 +954,8 @@ async function fetchBrasilApi(cnpj) {
   }
 }
 
+// Endpoint principal: valida CNPJ (14 digitos), verifica cache, consulta
+// ReceitaWS, enriquece IE (Sintegra/BrasilAPI) e grava no cache
 app.get('/api/toolbox/cnpj/:cnpj', async (req, res) => {
   const cnpj = (req.params.cnpj || '').replace(/\D/g, '').padStart(14, '0');
   const forceRefresh = req.query.refresh === '1';
@@ -991,6 +1066,10 @@ app.get('/api/toolbox/cnpj/:cnpj', async (req, res) => {
   }
 });
 
+// ===== TOOLBOX - CHAVE DE ACESSO NFE =====
+// Decodifica a chave de 44 digitos: UF, data de emissao, CNPJ do emitente,
+// modelo, serie, numero e tipo de emissao; o digito verificador e recalculado
+// para validar a chave (modulo 11 com pesos 2..9)
 // Toolbox - validacao e decodificacao de chave de acesso NFe
 const NF_UF_CODES = { '11': 'RO', '12': 'AC', '13': 'AM', '14': 'RR', '15': 'PA', '16': 'AP', '17': 'TO', '21': 'MA', '22': 'PI', '23': 'CE', '24': 'RN', '25': 'PB', '26': 'PE', '27': 'AL', '28': 'SE', '29': 'BA', '31': 'MG', '32': 'ES', '33': 'RJ', '35': 'SP', '41': 'PR', '42': 'SC', '43': 'RS', '50': 'MS', '51': 'MT', '52': 'GO', '53': 'DF', '91': 'AN' };
 
@@ -1021,6 +1100,10 @@ tipoEmissao: chave.substring(34, 35)
   });
 });
 
+// ===== ATTACHMENTS (anexos de arquivos) =====
+// Imagens/arquivos sao salvos em /notion/_images/<pasta> com nome unico;
+// metadados (nome original) ficam em _metadata.json e a referencia e
+// inserida na secao "## Anexos" do markdown
 app.post('/api/attachments/upload', (req, res) => {
   const { folder, filename, fileData, originalName } = req.body;
   
@@ -1168,6 +1251,9 @@ app.delete('/api/attachments/:folder/:fileName', (req, res) => {
 // Servir imagens estáticas
 app.use('/_images', express.static(IMAGES_DIR));
 
+// ===== BOT CONFIG (configuracao do bot Telegram) =====
+// Exibe o estado do token (mascarado) e permite definir/remover o token,
+// reiniciando ou parando o bot conforme o caso
 // Bot config
 app.get('/api/bot-config', (req, res) => {
   const config = loadBotConfig();
@@ -1187,6 +1273,9 @@ app.put('/api/bot-config', (req, res) => {
   }
 });
 
+// ===== PUBLIC FORM (cadastro publico de erros) =====
+// Endpoints usados pela pagina standalone 'cadastrar.html': lista
+// folders/tags disponiveis e recebe novos erros da comunidade
 // Public form - get folders and tags
 app.get('/api/public/folders-tags', (req, res) => {
   const folders = [];
@@ -1231,11 +1320,16 @@ app.post('/api/public/submit', (req, res) => {
   res.json({ success: true, message: 'Erro cadastrado com sucesso' });
 });
 
+// ===== CICLO DE VIDA DO SERVIDOR =====
+// Inicializacao (startServer), reinicio (handleRestart) e encerramento
+// (handleQuit); tambem controla a inicializacao do bot do Telegram
 app.post('/api/bot-stop', (req, res) => {
   stopBot();
   res.json({ success: true, message: 'Bot parado' });
 });
 
+// Sobe o servidor HTTP na porta 3000, exibe o banner com IPs da rede
+// e ativa o bot do Telegram caso exista token configurado
 function startServer() {
   httpServer.listen(PORT, '0.0.0.0', () => {
     const now = new Date().toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit', second: '2-digit' });
@@ -1270,6 +1364,7 @@ function startServer() {
   });
 }
 
+// Reinicia o servidor: para o bot, fecha o HTTP e sobe tudo novamente
 function handleRestart() {
   console.log('\n   Reiniciando servidor...');
   sendNotification('🔄 *Servidor REINICIANDO*');
@@ -1281,6 +1376,7 @@ function handleRestart() {
   }, 500);
 }
 
+// Encerra o servidor, notificando no Telegram antes de sair do processo
 function handleQuit() {
   console.log('\n   Encerrando servidor...');
   sendNotification('🔴 *Servidor OFFLINE*');
@@ -1289,6 +1385,7 @@ function handleQuit() {
 
 startServer();
 
+// Atalhos de teclado do terminal quando em modo TTY: [R] reinicia, [Q] sai
 if (process.stdin.isTTY) {
   process.stdin.setRawMode(true);
   process.stdin.resume();

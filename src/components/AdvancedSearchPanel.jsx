@@ -1,15 +1,26 @@
+/* ============================================================
+   AdvancedSearchPanel.jsx — Painel de busca avançada de erros
+   Permite filtrar a busca por texto, sistema/pasta, tags e
+   intervalo de datas de criação.
+   ============================================================ */
+
+// ===== Imports =====
 import { useState, useEffect } from 'react'
 import { FiSearch, FiX, FiCalendar, FiTag, FiFolder, FiFilter } from 'react-icons/fi'
 import { api } from '../services/api'
 
+// ===== Componente AdvancedSearchPanel =====
+// Props: onSearch (executa a busca), onClose (fecha o painel) e onSearchByTag
 export default function AdvancedSearchPanel({ onSearch, onClose, onSearchByTag }) {
-  const [query, setQuery] = useState('')
-  const [folder, setFolder] = useState('')
-  const [tags, setTags] = useState('')
-  const [dateFrom, setDateFrom] = useState('')
-  const [dateTo, setDateTo] = useState('')
-  const [folders, setFolders] = useState([])
+  // ===== States do componente =====
+  const [query, setQuery] = useState('')            // Texto de busca
+  const [folder, setFolder] = useState('')          // Sistema/pasta selecionado
+  const [tags, setTags] = useState('')              // Tags separadas por vírgula
+  const [dateFrom, setDateFrom] = useState('')      // Data inicial do intervalo
+  const [dateTo, setDateTo] = useState('')          // Data final do intervalo
+  const [folders, setFolders] = useState([])        // Lista de pastas/sistemas
 
+  // ===== Efeito: carrega as pastas disponíveis ao montar o painel =====
   useEffect(() => {
     const loadFolders = async () => {
       const data = await api.getFolders()
@@ -18,10 +29,12 @@ export default function AdvancedSearchPanel({ onSearch, onClose, onSearchByTag }
     loadFolders()
   }, [])
 
+  // ===== Handler: dispara a busca com os filtros preenchidos =====
   const handleSearch = () => {
     onSearch({ query, folder, tags, dateFrom, dateTo })
   }
 
+  // ===== Handler: limpa todos os filtros da busca =====
   const handleClear = () => {
     setQuery('')
     setFolder('')
@@ -30,9 +43,12 @@ export default function AdvancedSearchPanel({ onSearch, onClose, onSearchByTag }
     setDateTo('')
   }
 
+  // ===== Renderização do painel =====
   return (
+    // Overlay que fecha o painel ao clicar fora
     <div className="advanced-search-overlay" onClick={onClose}>
       <div className="advanced-search-panel" onClick={e => e.stopPropagation()}>
+        {/* ===== Cabeçalho do painel ===== */}
         <div className="advanced-search-header">
           <h3><FiFilter size={16} /> Busca Avançada</h3>
           <button onClick={onClose} className="close-btn">
@@ -40,7 +56,9 @@ export default function AdvancedSearchPanel({ onSearch, onClose, onSearchByTag }
           </button>
         </div>
 
+        {/* ===== Corpo: campos de filtro da busca ===== */}
         <div className="advanced-search-body">
+          {/* Campo: texto de busca (título ou conteúdo) */}
           <div className="search-field">
             <label><FiSearch size={14} /> Texto</label>
             <input
@@ -52,6 +70,7 @@ export default function AdvancedSearchPanel({ onSearch, onClose, onSearchByTag }
             />
           </div>
 
+          {/* Campo: seleção do sistema/pasta */}
           <div className="search-field">
             <label><FiFolder size={14} /> Sistema/Pasta</label>
             <select value={folder} onChange={(e) => setFolder(e.target.value)}>
@@ -62,6 +81,7 @@ export default function AdvancedSearchPanel({ onSearch, onClose, onSearchByTag }
             </select>
           </div>
 
+          {/* Campo: tags separadas por vírgula */}
           <div className="search-field">
             <label><FiTag size={14} /> Tags</label>
             <input
@@ -73,6 +93,7 @@ export default function AdvancedSearchPanel({ onSearch, onClose, onSearchByTag }
             />
           </div>
 
+          {/* Campo: intervalo de datas de criação */}
           <div className="search-field">
             <label><FiCalendar size={14} /> Data de Criação</label>
             <div className="date-range">
@@ -93,6 +114,7 @@ export default function AdvancedSearchPanel({ onSearch, onClose, onSearchByTag }
           </div>
         </div>
 
+        {/* ===== Rodapé: botões de limpar filtros e buscar ===== */}
         <div className="advanced-search-footer">
           <button onClick={handleClear} className="btn-secondary">
             <FiX size={14} /> Limpar

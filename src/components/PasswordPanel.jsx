@@ -1,6 +1,14 @@
+/**
+ * PasswordPanel.jsx - Painel de Senhas do Dia.
+ * Calcula e exibe as senhas rotativas de cada sistema. A senha muda todo dia,
+ * pois é derivada do mês e do dia atuais por uma função própria de cada sistema.
+ */
 import { useState } from 'react'
 import { FiCopy, FiCheck, FiLock } from 'react-icons/fi'
 
+// ===== SISTEMAS =====
+// Base de sistemas com usuário e a função geradora da senha rotativa do dia.
+// Exemplo: SCG-WIN usa "aps" + (mês + 20) + (dia + 5); o resultado muda diariamente.
 const sistemas = [
   {
     nome: 'SCG-WIN',
@@ -53,12 +61,15 @@ const sistemas = [
 ]
 
 export default function PasswordPanel() {
+  // Índice do sistema copiado, para mostrar o "check" de copiado por 1,5s
   const [copied, setCopied] = useState(null)
 
+  // Data atual: mês e dia alimentam a geração das senhas rotativas
   const hoje = new Date()
   const mes = hoje.getMonth() + 1
   const dia = hoje.getDate()
 
+  // Copia usuário + senha para a área de transferência e exibe o check temporário
   const handleCopy = (texto, index) => {
     navigator.clipboard.writeText(texto)
     setCopied(index)
@@ -67,11 +78,14 @@ export default function PasswordPanel() {
 
   return (
     <div className="password-panel">
+      {/* ===== RENDERIZAÇÃO ===== */}
+      {/* Cabeçalho do painel com a data de hoje */}
       <div className="password-header">
         <FiLock size={16} />
         <span>Senhas do Dia</span>
         <span className="password-date">{dia.toString().padStart(2, '0')}/{mes.toString().padStart(2, '0')}</span>
       </div>
+      {/* Grid com o card de cada sistema: usuário e senha gerada para o dia */}
       <div className="password-grid">
         {sistemas.map((sistema, index) => {
           const senha = sistema.getSenha(mes, dia)

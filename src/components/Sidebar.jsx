@@ -1,3 +1,8 @@
+/**
+ * Sidebar.jsx - Painel lateral do módulo APS.
+ * Lista os favoritos, as pastas (renomear via clique direito e excluir) e o
+ * acesso à lixeira (Erros Não Catalogados).
+ */
 import { useState, useEffect } from 'react'
 import { api } from '../services/api'
 import { FiStar, FiFolder, FiPlus, FiTrash2, FiFolderMinus } from 'react-icons/fi'
@@ -17,8 +22,10 @@ export default function Sidebar({
   refreshTrigger,
   className
 }) {
+  // Estado que guarda a quantidade de arquivos de cada pasta (exibida ao lado do nome)
   const [folderCounts, setFolderCounts] = useState({})
 
+  // Efeito que busca a contagem de arquivos de cada pasta; recarrega quando as pastas mudam ou o refreshTrigger incrementa
   useEffect(() => {
     const loadCounts = async () => {
       const counts = {}
@@ -33,6 +40,8 @@ export default function Sidebar({
 
   return (
     <aside className={`sidebar ${className || ''}`}>
+      {/* ===== RENDERIZAÇÃO ===== */}
+      {/* Seção de favoritos: atalhos diretos para os erros favoritados */}
       <div className="sidebar-section">
         <h3><FiStar size={12} /> Favoritos</h3>
         {favorites.length === 0 ? (
@@ -52,6 +61,7 @@ export default function Sidebar({
         )}
       </div>
 
+      {/* Seção de pastas: botão que abre o modal de nova pasta */}
       <div className="sidebar-section">
         <h3><FiFolder size={12} /> Pastas</h3>
         <button onClick={onNewFolder} style={{ width: '100%', marginBottom: '8px' }}>
@@ -59,6 +69,7 @@ export default function Sidebar({
         </button>
       </div>
 
+      {/* Lista de pastas: clique seleciona, clique direito renomeia e o botão vermelho exclui */}
       <ul className="folder-list">
         {folders.map((folder) => (
           <li
@@ -88,6 +99,7 @@ export default function Sidebar({
         ))}
       </ul>
 
+      {/* Acesso à lixeira (Erros Não Catalogados) */}
       <div className="trash-section">
         <div
           className={`trash-btn ${showTrash ? 'active' : ''}`}

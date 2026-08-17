@@ -1,8 +1,17 @@
+/*
+ * TagsPanel — Painel "Gerenciar Tags".
+ * Lista as tags catalogadas e os arquivos associados a cada uma. Permite renomear
+ * uma tag (atualizando a referencia em todos os arquivos), excluir uma tag (removendo
+ * a linha dos arquivos), buscar por nome e abrir arquivos direto da lista.
+ * A criacao de tags em si e feita dentro do editor de erros (botao "+ Tag").
+ */
 import { useState, useEffect } from 'react'
 import { api } from '../services/api'
 import { FiTag, FiPlus, FiEdit2, FiTrash2, FiX, FiCheck, FiSearch, FiFile } from 'react-icons/fi'
 
 export default function TagsPanel({ onSelectFile }) {
+  // Estados do painel: mapa de tags -> arquivos, carga, criacao/edicao de tag,
+  // busca e confirmacao de exclusao
   const [tags, setTags] = useState({})
   const [loading, setLoading] = useState(true)
   const [newTagName, setNewTagName] = useState('')
@@ -12,6 +21,7 @@ export default function TagsPanel({ onSelectFile }) {
   const [searchTerm, setSearchTerm] = useState('')
   const [showConfirmDelete, setShowConfirmDelete] = useState(null)
 
+  // Carrega o mapa de tags (nome -> lista de arquivos) da API
   const loadTags = async () => {
     try {
       setLoading(true)
@@ -25,10 +35,12 @@ export default function TagsPanel({ onSelectFile }) {
     }
   }
 
+  // Carrega as tags ao montar o painel
   useEffect(() => {
     loadTags()
   }, [])
 
+  // Criacao de tag redireciona para o editor de erros (tags so sao criadas la)
   const handleCreateTag = async () => {
     if (!newTagName.trim()) return
     alert('Para criar uma nova tag, abra um erro e clique em "+ Tag" para adicioná-la.')
@@ -36,6 +48,8 @@ export default function TagsPanel({ onSelectFile }) {
     setShowNewTagInput(false)
   }
 
+  // Renomeia uma tag: percorre todos os arquivos associados e troca a linha "- <tag>"
+  // em cada conteudo, depois recarrega as tags
   const handleRenameTag = async (oldName) => {
     if (!editTagName.trim() || editTagName === oldName) {
       setEditingTag(null)
@@ -60,6 +74,8 @@ export default function TagsPanel({ onSelectFile }) {
     await loadTags()
   }
 
+  // Exclui uma tag: remove a linha "- <tag>" de todos os arquivos associados
+  // e limpa as linhas em branco duplicadas
   const handleDeleteTag = async (tagName) => {
     const filesToUpdate = tags[tagName] || []
     
@@ -79,18 +95,22 @@ export default function TagsPanel({ onSelectFile }) {
     await loadTags()
   }
 
+  // Abre um arquivo no visualizador principal atraves do callback recebido como prop
   const handleFileClick = (folder, filename) => {
     onSelectFile({ folder, filename })
   }
 
+  // Filtra as tags pelo termo de busca e ordena alfabeticamente
   const filteredTags = Object.keys(tags).filter(tag =>
     tag.toLowerCase().includes(searchTerm.toLowerCase())
   ).sort()
 
+  // Total de arquivos catalogados em todas as tags
   const totalFiles = Object.values(tags).reduce((acc, files) => acc + files.length, 0)
 
   return (
     <div className="dashboard">
+      {/* Cabecalho: titulo + contagem de tags/arquivos + botao Nova Tag */}
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '24px' }}>
         <h2 style={{ margin: 0, display: 'flex', alignItems: 'center', gap: '12px' }}>
           <FiTag size={24} /> Gerenciar Tags
@@ -105,6 +125,7 @@ export default function TagsPanel({ onSelectFile }) {
         </div>
       </div>
 
+      {/* Formulario de nova tag: informa que a criacao real ocorre no editor de erros */}
       {showNewTagInput && (
         <div style={{ 
           display: 'flex', 
@@ -154,6 +175,7 @@ export default function TagsPanel({ onSelectFile }) {
         </div>
       )}
 
+      {/* Barra de busca de tags por nome */}
       <div style={{ display: 'flex', gap: '12px', marginBottom: '24px' }}>
         <div style={{ flex: 1, position: 'relative' }}>
           <FiSearch size={16} style={{ position: 'absolute', left: '14px', top: '50%', transform: 'translateY(-50%)', color: 'var(--text-muted)' }} />
@@ -175,6 +197,8 @@ export default function TagsPanel({ onSelectFile }) {
         </div>
       </div>
 
+      {/* Estados de carga e vazio: carregando ou nenhuma tag encontrada */}
+      {/* Com tags encontradas, exibe a grade de cards (um por tag) */}
       {loading ? (
         <div className="empty-state" style={{ height: 'auto', padding: '48px' }}>
           <FiTag size={48} style={{ opacity: 0.3, marginBottom: 16 }} />
@@ -190,6 +214,7 @@ export default function TagsPanel({ onSelectFile }) {
         </div>
       ) : (
         <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(320px, 1fr))', gap: '16px' }}>
+          {/* Card de uma tag: nome + contagem e botoes renomear/excluir (com confirmacao) */}
           {filteredTags.map((tag) => (
             <div
               key={tag}
@@ -202,6 +227,7 @@ export default function TagsPanel({ onSelectFile }) {
               }}
             >
               <div style={{ display: 'flex', justifyContent: 'space-between', width: '100%', alignItems: 'center' }}>
+                {/* Formulario inline de renomeacao da tag */}
                 {editingTag === tag ? (
                   <div style={{ display: 'flex', gap: '8px', flex: 1 }}>
                     <input
@@ -284,6 +310,7 @@ export default function TagsPanel({ onSelectFile }) {
                 )}
               </div>
 
+              {/* Lista de arquivos da tag (ate 5): clicaveis para abrir, com "mais" se houver mais */}
               {!editingTag && tags[tag].length > 0 && (
                 <div style={{ 
                   display: 'flex', 

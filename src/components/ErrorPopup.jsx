@@ -1,22 +1,34 @@
+/* ============================================================
+   ErrorPopup.jsx — Popup de visualização/edição de um erro
+   Exibe o conteúdo do erro em Markdown, permite editar o título
+   e o conteúdo, gerenciar tags e anexos, mover, copiar ou
+   excluir o registro do erro.
+   ============================================================ */
+
+// ===== Imports =====
 import { useState, useEffect, useRef } from 'react'
 import { api } from '../services/api'
 import { FiX, FiEdit2, FiTag, FiPaperclip, FiTrash2, FiCopy, FiFolder, FiPlus, FiFile, FiFileText, FiFilm, FiMusic, FiPackage, FiBarChart2 } from 'react-icons/fi'
 
+// ===== Componente ErrorPopup =====
+// Recebe o arquivo (erro) selecionado e callbacks: onClose, onEdit, onMove e a lista de pastas
 export default function ErrorPopup({ file, onClose, onEdit, onMove, folders }) {
-  const [fadeOut, setFadeOut] = useState(false)
-  const [content, setContent] = useState('')
-  const [tags, setTags] = useState([])
-  const [attachments, setAttachments] = useState([])
-  const [isEditing, setIsEditing] = useState(false)
-  const [editContent, setEditContent] = useState('')
-  const [editTitle, setEditTitle] = useState('')
-  const [showTagInput, setShowTagInput] = useState(false)
-  const [newTag, setNewTag] = useState('')
-  const [uploading, setUploading] = useState(false)
-  const [showPreview, setShowPreview] = useState(null)
+  // ===== States do componente =====
+  const [fadeOut, setFadeOut] = useState(false)          // Controla a animação de fechamento
+  const [content, setContent] = useState('')             // Conteúdo Markdown do erro
+  const [tags, setTags] = useState([])                   // Lista de tags do erro
+  const [attachments, setAttachments] = useState([])     // Lista de anexos do erro
+  const [isEditing, setIsEditing] = useState(false)      // Modo de edição ativo/inativo
+  const [editContent, setEditContent] = useState('')     // Conteúdo em edição
+  const [editTitle, setEditTitle] = useState('')         // Título em edição
+  const [showTagInput, setShowTagInput] = useState(false) // Exibe o campo de nova tag
+  const [newTag, setNewTag] = useState('')               // Texto da nova tag
+  const [uploading, setUploading] = useState(false)      // Estado de upload de anexos
+  const [showPreview, setShowPreview] = useState(null)   // URL da imagem em preview
   const [fileName, setFileName] = useState(file?.filename || (file?.name ? file.name + '.md' : ''))
-  const fileInputRef = useRef(null)
+  const fileInputRef = useRef(null)                      // Referência ao input de arquivo (oculto)
 
+  // ===== Efeito: carrega os dados quando o arquivo muda =====
   useEffect(() => {
     if (file) {
       setFileName(file.filename || (file.name ? file.name + '.md' : ''))
@@ -24,6 +36,7 @@ export default function ErrorPopup({ file, onClose, onEdit, onMove, folders }) {
     }
   }, [file])
 
+  // ===== Função: carrega conteúdo, tags e anexos do arquivo =====
   const loadData = async (name) => {
     if (!file || !file.folder) return
     const filename = name || fileName || file.filename || (file.name ? file.name + '.md' : '')
@@ -34,6 +47,7 @@ export default function ErrorPopup({ file, onClose, onEdit, onMove, folders }) {
     setEditContent(fileContent)
     setEditTitle(filename.replace('.md', ''))
 
+    // Extrai as tags da seção "## Tags" do Markdown
     const tagMatch = fileContent.match(/## Tags\n([\s\S]*?)$/)
     if (tagMatch) {
       setTags(tagMatch[1].split('\n').filter(t => t.startsWith('-')).map(t => t.replace('- ', '').trim()))
@@ -41,6 +55,7 @@ export default function ErrorPopup({ file, onClose, onEdit, onMove, folders }) {
       setTags([])
     }
 
+    // Carrega os anexos do arquivo
     try {
       const atts = await api.getAttachments(file.folder, filename)
       setAttachments(atts || [])
@@ -49,13 +64,16 @@ export default function ErrorPopup({ file, onClose, onEdit, onMove, folders }) {
     }
   }
 
+  // ===== Handler: fecha o popup com animação =====
   const handleClose = () => {
     setFadeOut(true)
     setTimeout(() => onClose(), 300)
   }
 
+  // ===== Função: converte Markdown simples em HTML para exibição =====
   const renderContent = (md) => {
     if (!md) return ''
+    // Converte títulos, negrito, código e listas
     let html = md
       .replace(/^### (.*$)/gm, '<h3>$1</h3>')
       .replace(/^## (.*$)/gm, '<h2>$1</h2>')
@@ -65,11 +83,13 @@ export default function ErrorPopup({ file, onClose, onEdit, onMove, folders }) {
       .replace(/^- (.*$)/gm, '• $1')
       .replace(/\n/g, '<br>')
 
+    // Converte imagens anexadas em <img> clicável
     html = html.replace(
       /!\[(.*?)\]\((\/_images\/[^)]+)\)/g,
       '<img src="$2" alt="$1" class="content-image" onclick="window.open(\'$2\', \'_blank\')" />'
     )
 
+    // Converte links de anexos em <a> clicável
     html = html.replace(
       /\[\s*(.*?)\s*\]\((\/_images\/[^)]+)\)/g,
       '<a href="$2" target="_blank" class="attachment-link">$1</a>'
@@ -78,6 +98,7 @@ export default function ErrorPopup({ file, onClose, onEdit, onMove, folders }) {
     return html
   }
 
+  // ===== Handler: adiciona uma nova tag ao erro =====
   const handleAddTag = async () => {
     if (!newTag.trim()) return
     const updatedTags = [...tags, newTag.trim()]
@@ -88,6 +109,7 @@ export default function ErrorPopup({ file, onClose, onEdit, onMove, folders }) {
     setShowTagInput(false)
   }
 
+  // ===== Handler: remove uma tag do erro =====
   const handleRemoveTag = async (tagToRemove) => {
     const updatedTags = tags.filter(t => t !== tagToRemove)
     const filename = fileName || file.filename || (file.name ? file.name + '.md' : '')
@@ -95,17 +117,20 @@ export default function ErrorPopup({ file, onClose, onEdit, onMove, folders }) {
     setTags(updatedTags)
   }
 
+  // ===== Handler: salva as alterações (renomeia se necessário e atualiza conteúdo) =====
   const handleSave = async () => {
     const filename = fileName || file.filename || (file.name ? file.name + '.md' : '')
     if (!filename) return
     const baseName = filename.replace(/\.md$/i, '')
     let finalFilename = filename
+    // Renomeia o arquivo caso o título tenha sido alterado
     if (editTitle && editTitle !== baseName) {
       const cleanTitle = editTitle.trim()
       const newName = cleanTitle.endsWith('.md') ? cleanTitle : cleanTitle + '.md'
       await api.renameFile(file.folder, filename, newName)
       finalFilename = newName
     }
+    // Atualiza o conteúdo do arquivo
     await api.updateFile(file.folder, finalFilename, editContent)
     setFileName(finalFilename)
     setContent(editContent)
@@ -113,10 +138,12 @@ export default function ErrorPopup({ file, onClose, onEdit, onMove, folders }) {
     loadData(finalFilename)
   }
 
+  // ===== Handler: copia o conteúdo do erro para a área de transferência =====
   const handleCopy = () => {
     navigator.clipboard.writeText(content)
   }
 
+  // ===== Handler: exclui definitivamente o erro (com confirmação) =====
   const handleDelete = async () => {
     if (!confirm('Excluir este erro?')) return
     const filename = fileName || file.filename || (file.name ? file.name + '.md' : '')
@@ -124,11 +151,13 @@ export default function ErrorPopup({ file, onClose, onEdit, onMove, folders }) {
     handleClose()
   }
 
+  // ===== Handler: faz upload de anexos para o erro =====
   const handleFileUpload = async (e) => {
     const files = Array.from(e.target.files)
     if (files.length === 0) return
     setUploading(true)
     const filename = fileName || file.filename || (file.name ? file.name + '.md' : '')
+    // Lê cada arquivo como DataURL e envia como anexo
     for (const f of files) {
       const reader = new FileReader()
       reader.onload = async (ev) => {
@@ -141,12 +170,14 @@ export default function ErrorPopup({ file, onClose, onEdit, onMove, folders }) {
     if (fileInputRef.current) fileInputRef.current.value = ''
   }
 
+  // ===== Handler: remove um anexo (com confirmação) =====
   const handleDeleteAttachment = async (fileName) => {
     if (!confirm('Remover este anexo?')) return
     await api.deleteAttachment(file.folder, fileName)
     await loadData()
   }
 
+  // ===== Função: retorna o ícone adequado conforme a extensão do anexo =====
   const getFileIcon = (fileName) => {
     const ext = fileName.split('.').pop().toLowerCase()
     const icons = {
@@ -160,6 +191,7 @@ export default function ErrorPopup({ file, onClose, onEdit, onMove, folders }) {
     return icons[ext] || <FiPaperclip size={16} />
   }
 
+  // ===== Handler: move o erro para outra pasta =====
   const handleMove = async (targetFolder) => {
     if (!targetFolder || targetFolder === file.folder) return
     if (onMove) {
@@ -171,12 +203,16 @@ export default function ErrorPopup({ file, onClose, onEdit, onMove, folders }) {
     }
   }
 
+  // ===== Renderização do popup =====
   return (
+    // Overlay que fecha o popup ao clicar fora
     <div className={`error-popup-overlay ${fadeOut ? 'fade-out' : ''}`} onClick={handleClose}>
       <div className={`error-popup ${fadeOut ? 'zoom-out' : ''}`} onClick={e => e.stopPropagation()}>
 
+        {/* ===== Cabeçalho: título (editável) e ações da barra superior ===== */}
         <div className="error-popup-header">
           <div className="error-popup-title">
+            {/* Em modo edição exibe um input; caso contrário, o nome do erro */}
             {isEditing ? (
               <input
                 type="text"
@@ -188,8 +224,10 @@ export default function ErrorPopup({ file, onClose, onEdit, onMove, folders }) {
               <h2>{file?.name?.replace('.md', '') || file?.filename?.replace('.md', '')}</h2>
             )}
           </div>
+          {/* Botões de ação: anexar, copiar, mover, editar, excluir e fechar */}
           <div className="error-popup-actions">
             {isEditing ? (
+              // ===== Ações no modo edição: cancelar e salvar =====
               <>
                 <button onClick={() => setIsEditing(false)} className="btn-cancel">
                   <FiX size={16} /> Cancelar
@@ -199,6 +237,7 @@ export default function ErrorPopup({ file, onClose, onEdit, onMove, folders }) {
                 </button>
               </>
             ) : (
+              // ===== Ações no modo visualização =====
               <>
                 <button onClick={() => fileInputRef.current?.click()} className="btn-icon" title="Anexar">
                   <FiPaperclip size={14} />
@@ -206,6 +245,7 @@ export default function ErrorPopup({ file, onClose, onEdit, onMove, folders }) {
                 <button onClick={handleCopy} className="btn-icon" title="Copiar">
                   <FiCopy size={14} />
                 </button>
+                {/* Move para outra pasta via prompt */}
                 <button onClick={() => {
                   const target = prompt('Mover para qual pasta?\n\nPastas: ' + (folders || []).map(f => f.name || f).join(', '))
                   if (target && target !== file.folder) handleMove(target)
@@ -221,6 +261,7 @@ export default function ErrorPopup({ file, onClose, onEdit, onMove, folders }) {
                 <button onClick={handleClose} className="btn-close">
                   <FiX size={18} />
                 </button>
+                {/* Input de arquivo oculto usado para o upload de anexos */}
                 <input
                   ref={fileInputRef}
                   type="file"
@@ -233,10 +274,12 @@ export default function ErrorPopup({ file, onClose, onEdit, onMove, folders }) {
           </div>
         </div>
 
+        {/* ===== Barra de informações: pasta e tags do erro ===== */}
         <div className="error-popup-info">
           <span className="error-popup-folder">
             <FiFolder size={12} /> {file?.folder}
           </span>
+          {/* Lista de tags com botão de remoção e botão para adicionar nova tag */}
           <div className="error-popup-tags">
             {tags.map((tag, i) => (
               <span key={i} className="error-popup-tag">
@@ -252,6 +295,7 @@ export default function ErrorPopup({ file, onClose, onEdit, onMove, folders }) {
           </div>
         </div>
 
+        {/* ===== Campo para digitar e adicionar uma nova tag ===== */}
         {showTagInput && (
           <div className="tag-input-row">
             <input
@@ -267,8 +311,10 @@ export default function ErrorPopup({ file, onClose, onEdit, onMove, folders }) {
           </div>
         )}
 
+        {/* ===== Corpo do popup: editor ou conteúdo do erro ===== */}
         <div className="error-popup-body">
           {isEditing ? (
+            // ===== Modo edição: referência de formatação + textarea =====
             <div className="error-popup-editor">
               <div className="markdown-reference">
                 <span className="markdown-reference-title">Formatacao:</span>
@@ -284,12 +330,15 @@ export default function ErrorPopup({ file, onClose, onEdit, onMove, folders }) {
               />
             </div>
           ) : (
+            // ===== Modo visualização: conteúdo renderizado + seção de anexos =====
             <>
+              {/* Conteúdo do erro convertido de Markdown para HTML */}
               <div
                 className="error-popup-content"
                 dangerouslySetInnerHTML={{ __html: renderContent(content) }}
               />
 
+              {/* ===== Seção de anexos do erro ===== */}
               {attachments.length > 0 && (
                 <div className="attachments-section">
                   <div className="attachments-header">
@@ -297,6 +346,7 @@ export default function ErrorPopup({ file, onClose, onEdit, onMove, folders }) {
                     <span>Anexos ({attachments.length})</span>
                   </div>
                   <div className="attachments-grid">
+                    {/* Cada anexo: imagem com preview ou arquivo com ícone por extensão */}
                     {attachments.map((att, idx) => (
                       <div key={idx} className={`attachment-card ${att.isImage ? 'is-image' : 'is-file'}`}>
                         {att.isImage ? (
@@ -311,6 +361,7 @@ export default function ErrorPopup({ file, onClose, onEdit, onMove, folders }) {
                             <span className="attachment-name">{att.originalName}</span>
                           </div>
                         )}
+                        {/* Botão para excluir o anexo */}
                         <button
                           className="attachment-delete"
                           onClick={() => handleDeleteAttachment(att.name)}
@@ -327,6 +378,7 @@ export default function ErrorPopup({ file, onClose, onEdit, onMove, folders }) {
         </div>
       </div>
 
+      {/* ===== Preview de imagem em tela cheia ===== */}
       {showPreview && (
         <div className="image-preview-overlay" onClick={() => setShowPreview(null)}>
           <img src={showPreview} alt="Preview" />

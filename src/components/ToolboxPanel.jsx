@@ -1,8 +1,19 @@
+/*
+ * ToolboxPanel — Painel "Caixa de Ferramentas".
+ * Agrupa utilitarios do dia a dia de suporte em 6 abas:
+ *   1. Descontos e %  -> calculos de desconto, valor original e percentual
+ *   2. 1 Centavo      -> diferenca de centavos e parcelas com resto (PEDVENDPRAZOS)
+ *   3. SEFAZ / NFe    -> verifica disponibilidade dos autorizadores SEFAZ + links
+ *   4. Codigos        -> consulta de CFOP e CSTs (PIS, COFINS, IPI, ICMS) via fiscalTables
+ *   5. CNPJ           -> consulta de CNPJ (BrasilAPI/ReceitaWS + opcional SINTEGRA)
+ *   6. NFe            -> valida e decodifica chave de acesso de 44 digitos
+ */
 import { useEffect, useState } from 'react'
 import { FiPercent, FiHash, FiServer, FiCopy, FiCheck, FiRefreshCw, FiExternalLink, FiSave, FiAlertCircle, FiUser, FiFileText } from 'react-icons/fi'
 import { api } from '../services/api'
 import { CFOP_LIST, CST_PIS, CST_COFINS, CST_IPI, CST_ICMS } from '../data/fiscalTables'
 
+// Links diretos para o portal nacional NFe e para as SEFAZ de cada UF
 const SEFAZ_LINKS = [
   { uf: 'BR', nome: 'Portal Nacional NFe', url: 'https://www.nfe.fazenda.gov.br/portal/disponibilidade.aspx' },
   { uf: 'RS', nome: 'SEFAZ RS', url: 'https://www.sefaz.rs.gov.br/' },
@@ -18,12 +29,15 @@ const SEFAZ_LINKS = [
   { uf: 'PE', nome: 'SEFAZ PE', url: 'https://www.sefaz.pe.gov.br/' }
 ]
 
+// SQL pronto para consultar parcelas no PEDVENDPRAZOS (aba "1 Centavo")
 const SQL_PEDVEND = `SELECT * FROM PEDVENDPRAZOS WHERE CODPEDVEND = [COD_PEDIDO]`
 
+// Formata um numero como moeda brasileira (R$)
 function fmtMoney(v) {
   return v.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })
 }
 
+// Botao padrao das abas da caixa de ferramentas (destaca a aba ativa)
 function TabButton({ active, onClick, icon, label }) {
   return (
     <button className={`toolbox-tab ${active ? 'active' : ''}`} onClick={onClick}>
@@ -32,12 +46,15 @@ function TabButton({ active, onClick, icon, label }) {
   )
 }
 
+// Caixa de resultado com cor condicional (ok = verde, warn = amarelo)
 function ResultBox({ ok, children }) {
   return <div className={`toolbox-result ${ok ? 'ok' : 'warn'}`}>{children}</div>
 }
 
+// Cores por status de disponibilidade (verde/amarelo/vermelho)
 const STATUS_COLORS = { verde: '#10b981', amarelo: '#f59e0b', vermelho: '#ef4444' }
 
+// Ponto colorido que indica o status de um servico/autorizador
 function StatusDot({ status }) {
   return (
     <span
@@ -53,6 +70,7 @@ function StatusDot({ status }) {
   )
 }
 
+// Celula da tabela SEFAZ: bolinha de status + rotulo (Online/Instavel/Offline)
 function SefaStatusCell({ status }) {
   return (
     <td>
@@ -64,6 +82,8 @@ function SefaStatusCell({ status }) {
   )
 }
 
+// Tabela de disponibilidade dos autorizadores SEFAZ: resume servicos com problema,
+// contingencias (SVC-AN/SVC-RS) e mostra o status de cada autorizador por operacao
 function SefaStatusTable({ data }) {
   const problems = data.rows.filter(r =>
     ['autorizacao', 'retorno', 'inutilizacao', 'consultaProtocolo', 'statusServico', 'consultaCadastro', 'recepcaoEvento']
@@ -137,9 +157,10 @@ function SefaStatusTable({ data }) {
 }
 
 export default function ToolboxPanel() {
+  // Aba ativa da caixa de ferramentas (calculo | diferenca | sefaz | cfop | cnpj | nfe)
   const [tab, setTab] = useState('calculo')
 
-  // Tab 1 - calculos
+  // Tab 1 - calculos (entradas dos 3 cards: desconto, valor original, X % de Y)
   const [v1, setV1] = useState('')
   const [p1, setP1] = useState('')
   const [v2, setV2] = useState('')
@@ -147,23 +168,23 @@ export default function ToolboxPanel() {
   const [v3, setV3] = useState('')
   const [y3, setY3] = useState('')
 
-  // Tab 2 - 1 centavo
+  // Tab 2 - 1 centavo (valores esperado/informado, parcelas e flag do SQL copiado)
   const [esp, setEsp] = useState('')
   const [inf, setInf] = useState('')
   const [totParc, setTotParc] = useState('')
   const [nParc, setNParc] = useState('')
   const [sqlCopied, setSqlCopied] = useState(false)
 
-  // Tab 3 - SEFAZ
+  // Tab 3 - SEFAZ (resultado da verificacao de disponibilidade + flag de carregamento)
   const [sefaStatus, setSefaStatus] = useState(null)
   const [sefaLoading, setSefaLoading] = useState(false)
 
-  // Tab 4 - Codigos (CFOP + CST)
+  // Tab 4 - Codigos (CFOP + CST): filtro de CFOP, subaba ativa e filtro de CST
   const [cfopFilter, setCfopFilter] = useState('')
   const [codSubTab, setCodSubTab] = useState('cfop')
   const [cstFilter, setCstFilter] = useState('')
 
-  // Tab 5 - CNPJ
+  // Tab 5 - CNPJ (entrada, carregamento, resultado, erro, chave SINTEGRA e mensagem de salvamento)
   const [cnpjInput, setCnpjInput] = useState('')
   const [cnpjLoading, setCnpjLoading] = useState(false)
   const [cnpjResult, setCnpjResult] = useState(null)
@@ -172,18 +193,20 @@ export default function ToolboxPanel() {
   const [sintegraConfigured, setSintegraConfigured] = useState(false)
   const [keySavedMsg, setKeySavedMsg] = useState('')
 
-  // Tab 6 - NFe
+  // Tab 6 - NFe (chave de acesso, resultado decodificado, erro e flag da chave copiada)
   const [nfeInput, setNfeInput] = useState('')
   const [nfeResult, setNfeResult] = useState(null)
   const [nfeError, setNfeError] = useState('')
   const [chaveCopied, setChaveCopied] = useState(false)
 
+  // Ao montar o painel, verifica se a chave SINTEGRA ja foi configurada
   useEffect(() => {
     api.getToolboxConfig().then(cfg => {
       setSintegraConfigured(!!cfg.sintegraConfigured)
     }).catch(() => {})
   }, [])
 
+  // Consulta a disponibilidade dos servicos SEFAZ/NFe na API
   const checkSefa = async () => {
     setSefaLoading(true)
     setSefaStatus(null)
@@ -192,30 +215,35 @@ export default function ToolboxPanel() {
     setSefaLoading(false)
   }
 
+  // Copia texto para a area de transferencia e mostra "Copiado!" por 2 segundos
   const copyText = (text) => {
     navigator.clipboard?.writeText(text)
     setSqlCopied(true)
     setTimeout(() => setSqlCopied(false), 2000)
   }
 
+  // Calculos da aba "1 Centavo": diferenca entre valores e resto das parcelas
   const diff = (Number(esp) || 0) - (Number(inf) || 0)
   const diffOk = Math.abs(diff) < 0.005
 
   const parcela = nParc > 0 ? (Number(totParc) || 0) / Number(nParc) : 0
   const resto = parcela > 0 ? Number(totParc) - (Math.round(parcela * 100) / 100) * Number(nParc) : 0
 
+  // Filtra os CFOPs pelo codigo, descricao ou aplicacao (ignora pontos e espacos)
   const filteredCfops = CFOP_LIST.filter(c => {
     const q = cfopFilter.trim().toLowerCase().replace(/\./g, '')
     if (!q) return true
     return c.num.includes(q) || c.desc.toLowerCase().includes(q) || c.aplicacao.toLowerCase().includes(q)
   })
 
+  // Filtra listas de CST (PIS/COFINS/IPI/ICMS) por codigo, descricao ou grupo
   const filteredCsts = (list) => {
     const q = cstFilter.trim().toLowerCase()
     if (!q) return list
     return list.filter(c => c.cst.includes(q) || c.desc.toLowerCase().includes(q) || (c.grupo && c.grupo.toLowerCase().includes(q)))
   }
 
+  // Consulta CNPJ na API (valida 14 digitos; forceRefresh ignora o cache local)
   const consultaCnpj = async (forceRefresh = false) => {
     const digits = cnpjInput.replace(/\D/g, '')
     if (digits.length !== 14) {
@@ -234,6 +262,7 @@ export default function ToolboxPanel() {
     setCnpjLoading(false)
   }
 
+  // Valida e decodifica a chave de acesso NFe (exige 44 digitos)
   const consultaNfe = async () => {
     const chave = nfeInput.replace(/\D/g, '')
     if (chave.length !== 44) {
@@ -247,9 +276,11 @@ export default function ToolboxPanel() {
     else setNfeError(r.error || 'Falha ao validar a chave')
   }
 
+  // Formata CNPJ (00.000.000/0000-00) e chave NFe (grupos de 4) para exibicao
   const formatCnpj = (c) => c ? c.replace(/^(\d{2})(\d{3})(\d{3})(\d{4})(\d{2})$/, '$1.$2.$3/$4-$5') : ''
   const formatChave = (c) => c ? c.replace(/^(\d{4})(\d{4})(\d{4})(\d{4})(\d{4})(\d{4})(\d{4})(\d{4})(\d{4})(\d{4})(\d{4})$/, '$1 $2 $3 $4 $5 $6 $7 $8 $9 $10 $11') : ''
 
+  // Salva a chave SINTEGRA na configuracao da API e mostra mensagem de sucesso/erro
   const saveSintegraKey = async () => {
     const key = sintegraKey.trim()
     if (!key) return
@@ -261,6 +292,7 @@ export default function ToolboxPanel() {
 
   return (
     <div className="dashboard toolbox">
+      {/* Barra com as 6 abas da caixa de ferramentas: Descontos, 1 Centavo, SEFAZ, Codigos, CNPJ e NFe */}
       <div className="toolbox-tabs">
         <TabButton active={tab === 'calculo'} onClick={() => setTab('calculo')} icon={<FiPercent size={14} />} label="Descontos e %" />
         <TabButton active={tab === 'diferenca'} onClick={() => setTab('diferenca')} icon={<FiHash size={14} />} label="1 Centavo" />
@@ -270,6 +302,7 @@ export default function ToolboxPanel() {
         <TabButton active={tab === 'nfe'} onClick={() => setTab('nfe')} icon={<FiFileText size={14} />} label="NFe" />
       </div>
 
+            {/* Aba 1 - Descontos e %: desconto sobre valor, valor original e X % de Y */}
       {tab === 'calculo' && (
         <div className="toolbox-grid">
           <div className="toolbox-card">
@@ -314,6 +347,7 @@ export default function ToolboxPanel() {
         </div>
       )}
 
+      {/* Aba 2 - 1 Centavo: diferenca de valores, parcelas com resto e passo a passo PEDVENDPRAZOS */}
       {tab === 'diferenca' && (
         <div className="toolbox-grid">
           <div className="toolbox-card">
@@ -375,6 +409,7 @@ export default function ToolboxPanel() {
         </div>
       )}
 
+      {/* Aba 3 - SEFAZ/NFe: verificacao de disponibilidade dos autorizadores + links das SEFAZ */}
       {tab === 'sefaz' && (
         <div className="toolbox-grid">
           <div className="toolbox-card toolbox-card-wide">
@@ -409,6 +444,7 @@ export default function ToolboxPanel() {
         </div>
       )}
 
+      {/* Aba 4 - Codigos: subabas CFOP / PIS / COFINS / IPI / CST(ICMS) com filtro de busca */}
       {tab === 'cfop' && (
         <div className="toolbox-grid">
           <div className="toolbox-card toolbox-card-wide">
@@ -416,6 +452,7 @@ export default function ToolboxPanel() {
             <p className="toolbox-hint">
               Todos os CFOPs aceitos pela SEFAZ e os CST de PIS, COFINS, IPI e ICMS (notas), conforme tabelas oficiais.
             </p>
+            // Subabas da aba Codigos: define qual tabela fiscal (do fiscalTables.js) sera exibida
             <div className="toolbox-subtabs">
               {[
                 { id: 'cfop', label: 'CFOP' },
@@ -435,6 +472,7 @@ export default function ToolboxPanel() {
               onChange={e => setCfopFilter(e.target.value)}
               placeholder={codSubTab === 'cfop' ? 'Filtrar por codigo ou descricao...' : 'Filtrar por CST ou descricao...'}
             />
+            {/* Lista de CFOPs filtrados por codigo/descricao/aplicacao */}
             {codSubTab === 'cfop' && (
               <div className="toolbox-cfop-list">
                 {filteredCfops.map((c, i) => (
@@ -446,6 +484,7 @@ export default function ToolboxPanel() {
                 {filteredCfops.length === 0 && <div className="toolbox-empty">Nenhum CFOP encontrado.</div>}
               </div>
             )}
+            {/* Lista de CSTs de PIS, COFINS e IPI (filtradas por codigo/descricao) */}
             {codSubTab === 'pis' && (
               <div className="toolbox-cfop-list">
                 {filteredCsts(CST_PIS).map((c, i) => (
@@ -479,6 +518,7 @@ export default function ToolboxPanel() {
                 {filteredCsts(CST_IPI).length === 0 && <div className="toolbox-empty">Nenhum CST de IPI encontrado.</div>}
               </div>
             )}
+            {/* Lista de CSTs do ICMS separada em dois grupos: regra normal e Simples Nacional (CSOSN) */}
             {codSubTab === 'cst' && (
               <>
                 <div className="toolbox-cst-grupos">
@@ -507,6 +547,7 @@ export default function ToolboxPanel() {
         </div>
       )}
 
+      {/* Aba 5 - CNPJ: configuracao SINTEGRA, consulta e detalhes cadastrais */}
       {tab === 'cnpj' && (
         <div className="toolbox-grid">
           <div className="toolbox-card toolbox-card-wide">
@@ -514,6 +555,7 @@ export default function ToolboxPanel() {
             <p className="toolbox-hint">
               Consulte razao social, situacao cadastral (ativa/baixada), inscricao estadual, endereco e atividades.
             </p>
+            {/* Status e formulario da chave SINTEGRA (usada para obter a Inscricao Estadual) */}
             <div className="toolbox-sintegra-config">
               <span className="toolbox-sintegra-status">
                 {sintegraConfigured ? (
@@ -556,6 +598,7 @@ export default function ToolboxPanel() {
               </button>
             </div>
             {cnpjError && <ResultBox warn><div><strong>{cnpjError}</strong></div></ResultBox>}
+            {/* Resultado da consulta CNPJ: dados cadastrais, IEs, socios e fonte dos dados */}
             {cnpjResult && cnpjResult.data && (
               <div className="toolbox-cnpj-result">
                 <div className="toolbox-cnpj-head">
@@ -674,6 +717,7 @@ export default function ToolboxPanel() {
         </div>
       )}
 
+      {/* Aba 6 - NFe: validacao e decodificacao da chave de acesso de 44 digitos */}
       {tab === 'nfe' && (
         <div className="toolbox-grid">
           <div className="toolbox-card toolbox-card-wide">
@@ -695,6 +739,7 @@ export default function ToolboxPanel() {
               </button>
             </div>
             {nfeError && <ResultBox warn><div><strong>{nfeError}</strong></div></ResultBox>}
+            {/* Resultado da chave NFe: validade do digito verificador, chave formatada e dados decodificados */}
             {nfeResult && (
               <>
                 <ResultBox ok={nfeResult.valida}>

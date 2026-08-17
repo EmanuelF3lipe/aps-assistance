@@ -1,7 +1,14 @@
+/*
+ * RelatoriosPanel — Painel "Relatorios do Sistema".
+ * Lista relatorios organizados por categoria (vendas, financeiro, estoque, etc.),
+ * com busca por titulo/conteudo, criacao, edicao, exclusao e copia para a area
+ * de transferencia. As categorias e os itens podem ser expandidos/colapsados.
+ */
 import { useState, useEffect } from 'react'
 import { api } from '../services/api'
 import { FiFileText, FiSearch, FiPlus, FiEdit3, FiTrash2, FiX, FiCheck, FiChevronDown, FiChevronRight } from 'react-icons/fi'
 
+// Cor de destaque de cada categoria de relatorio
 const COLORS = {
   vendas: 'var(--accent-blue)',
   financeiro: 'var(--accent-green)',
@@ -12,6 +19,7 @@ const COLORS = {
   geral: 'var(--text-muted)'
 }
 
+// Rotulo exibido para cada categoria
 const CATEGORY_LABELS = {
   vendas: 'Vendas',
   financeiro: 'Financeiro',
@@ -23,6 +31,8 @@ const CATEGORY_LABELS = {
 }
 
 export default function RelatoriosPanel() {
+  // Estados do painel: lista de relatorios, busca, categorias/itens expandidos,
+  // formulario de edicao (id + dados) e formulario de novo relatorio
   const [reports, setReports] = useState([])
   const [searchTerm, setSearchTerm] = useState('')
   const [expandedCats, setExpandedCats] = useState(Object.keys(COLORS))
@@ -32,35 +42,42 @@ export default function RelatoriosPanel() {
   const [showNewForm, setShowNewForm] = useState(false)
   const [newForm, setNewForm] = useState({ title: '', category: 'geral', content: '' })
 
+  // Carrega os relatorios uma unica vez ao montar o painel
   useEffect(() => {
     loadReports()
   }, [])
 
+  // Busca a lista de relatorios na API
   const loadReports = async () => {
     const data = await api.getReports()
     setReports(data)
   }
 
+  // Expande/colapsa uma categoria na listagem
   const toggleCategoria = (cat) => {
     setExpandedCats(prev =>
       prev.includes(cat) ? prev.filter(c => c !== cat) : [...prev, cat]
     )
   }
 
+  // Expande/colapsa um relatorio (apenas um aberto por vez)
   const toggleItem = (id) => {
     setExpandedItem(prev => prev === id ? null : id)
   }
 
+  // Preenche o formulario com os dados do relatorio e entra em modo edicao
   const startEdit = (report) => {
     setEditingId(report.id)
     setEditForm({ title: report.title, category: report.category, content: report.content })
   }
 
+  // Sai do modo edicao e limpa o formulario
   const cancelEdit = () => {
     setEditingId(null)
     setEditForm({ title: '', category: 'geral', content: '' })
   }
 
+  // Salva as alteracoes do relatorio em edicao e recarrega a lista
   const saveEdit = async () => {
     if (!editForm.title.trim()) return
     await api.updateReport(editingId, editForm.title, editForm.category, editForm.content)
@@ -68,6 +85,7 @@ export default function RelatoriosPanel() {
     await loadReports()
   }
 
+  // Cria um novo relatorio na API, fecha o formulario e recarrega a lista
   const handleCreate = async () => {
     if (!newForm.title.trim()) return
     await api.createReport(newForm.title, newForm.category, newForm.content)
@@ -76,17 +94,20 @@ export default function RelatoriosPanel() {
     await loadReports()
   }
 
+  // Exclui um relatorio (com confirmacao)
   const handleDelete = async (id) => {
     if (!confirm('Excluir este relatorio?')) return
     await api.deleteReport(id)
     await loadReports()
   }
 
+  // Monta o texto do relatorio (titulo + categoria + conteudo) e copia para a area de transferencia
   const copiarRelatorio = (rel) => {
     let texto = `${rel.title}\nCategoria: ${CATEGORY_LABELS[rel.category] || rel.category}\n\n${rel.content}`
     navigator.clipboard.writeText(texto)
   }
 
+  // Agrupa os relatorios por categoria e aplica o filtro de busca (titulo ou conteudo)
   const grouped = {}
   reports.forEach(r => {
     const cat = r.category || 'geral'
@@ -104,10 +125,12 @@ export default function RelatoriosPanel() {
     )
   })).filter(cat => cat.items.length > 0)
 
+  // Total de relatorios visiveis apos o filtro (exibido no cabecalho)
   const totalRelatorios = filteredGrouped.reduce((acc, cat) => acc + cat.items.length, 0)
 
   return (
     <div className="dashboard">
+      {/* Cabecalho: titulo + total de relatorios + botao Novo Relatorio */}
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '24px' }}>
         <h2 style={{ margin: 0, display: 'flex', alignItems: 'center', gap: '12px' }}>
           <FiFileText size={24} /> Relatorios do Sistema
@@ -122,6 +145,7 @@ export default function RelatoriosPanel() {
         </div>
       </div>
 
+      {/* Formulario de novo relatorio: titulo, categoria e conteudo */}
       {showNewForm && (
         <div style={{
           background: 'var(--bg-card)',
@@ -194,6 +218,7 @@ export default function RelatoriosPanel() {
         </div>
       )}
 
+      {/* Barra de busca por titulo ou conteudo */}
       <div style={{ display: 'flex', gap: '12px', marginBottom: '24px' }}>
         <div style={{ flex: 1, position: 'relative' }}>
           <FiSearch size={16} style={{ position: 'absolute', left: '14px', top: '50%', transform: 'translateY(-50%)', color: 'var(--text-muted)' }} />
@@ -215,9 +240,11 @@ export default function RelatoriosPanel() {
         </div>
       </div>
 
+      {/* Listagem por categoria: cabecalho com toggle de expansao + contagem de itens */}
       <div style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
-        {filteredGrouped.map((cat) => (
-          <div
+              {/* Bloco de uma categoria: cabecalho clicavel + lista de relatorios */}
+              {filteredGrouped.map((cat) => (
+        <div
             key={cat.category}
             style={{
               background: 'var(--bg-card)',
@@ -226,6 +253,7 @@ export default function RelatoriosPanel() {
               overflow: 'hidden'
             }}
           >
+            {/* Cabecalho da categoria: expande/colapsa ao clicar, com cor e contagem */}
             <div
               onClick={() => toggleCategoria(cat.category)}
               style={{
@@ -259,6 +287,7 @@ export default function RelatoriosPanel() {
               }
             </div>
 
+            {/* Itens da categoria (visiveis quando expandida): linha clicavel com editar/copiar/excluir */}
             {expandedCats.includes(cat.category) && (
               <div style={{ padding: '8px' }}>
                 {cat.items.map((item) => (
@@ -320,6 +349,7 @@ export default function RelatoriosPanel() {
                           item.title
                         )}
                       </span>
+                      {/* Acoes do relatorio: copiar, editar/salvar/cancelar e excluir */}
                       <div style={{ display: 'flex', gap: '4px' }} onClick={(e) => e.stopPropagation()}>
                         <button
                           onClick={() => copiarRelatorio(item)}
@@ -355,6 +385,7 @@ export default function RelatoriosPanel() {
                       }
                     </div>
 
+                    {/* Conteudo do relatorio expandido (ou formulario de edicao de categoria/conteudo) */}
                     {expandedItem === item.id && (
                       <div style={{
                         padding: '12px 16px 16px 72px',

@@ -1,7 +1,16 @@
+// ============================================================================
+// APS ASSISTANCE - Cliente de API do Frontend
+// ----------------------------------------------------------------------------
+// Encapsula todas as chamadas HTTP para o backend Express em um unico objeto
+// `api`, organizado por grupos de recursos (folders, files, attachments,
+// search, trash, tags, favorites, reports, bot, diary e toolbox).
+// Todas as funcoes retornam a resposta parseada em JSON.
+// ============================================================================
 const API_BASE = '/api';
 
 export const api = {
-  // Folders
+  // ===== FOLDERS (pastas/sistemas) =====
+  // CRUD das pastas em /notion: listar, criar, renomear e excluir
   async getFolders() {
     const res = await fetch(`${API_BASE}/folders`);
     return res.json();
@@ -32,7 +41,9 @@ export const api = {
     return res.json();
   },
 
-  // Files
+  // ===== FILES (erros em markdown) =====
+  // CRUD dos erros (.md) dentro de uma pasta: listar, ler, criar, atualizar,
+  // excluir, renomear, alterar tags e mover entre pastas
   async getFiles(folder) {
     const res = await fetch(`${API_BASE}/files/${encodeURIComponent(folder)}`);
     return res.json();
@@ -95,7 +106,8 @@ export const api = {
     return res.json();
   },
 
-  // Attachments
+  // ===== ATTACHMENTS (anexos de arquivos) =====
+  // Upload (base64), listagem e exclusao de anexos vinculados a um erro
   async uploadAttachment(folder, filename, fileData, originalName) {
     const res = await fetch(`${API_BASE}/attachments/upload`, {
       method: 'POST',
@@ -117,7 +129,9 @@ export const api = {
     return res.json();
   },
 
-  // Search
+  // ===== SEARCH (busca de erros) =====
+  // Busca simples por palavra-chave e busca avancada com filtros
+  // (query, pasta, tags e intervalo de datas)
   async search(query) {
     const res = await fetch(`${API_BASE}/search?q=${encodeURIComponent(query)}`);
     return res.json();
@@ -134,13 +148,15 @@ export const api = {
     return res.json();
   },
 
-  // Stats
+  // ===== STATS =====
+  // Estatisticas gerais: total por pasta, recentes e contagem de tags
   async getStats() {
     const res = await fetch(`${API_BASE}/stats`);
     return res.json();
   },
 
-  // Trash
+  // ===== TRASH (lixeira de erros) =====
+  // Lista, restaura, exclui individualmente ou esvazia a lixeira
   async getTrash() {
     const res = await fetch(`${API_BASE}/trash`);
     return res.json();
@@ -167,13 +183,15 @@ export const api = {
     return res.json();
   },
 
-  // Tags
+  // ===== TAGS =====
+  // Mapa de todas as tags catalogadas com os erros de cada uma
   async getTags() {
     const res = await fetch(`${API_BASE}/tags`);
     return res.json();
   },
 
-  // Favorites
+  // ===== FAVORITES (erros favoritados) =====
+  // Lista favoritos e adiciona/remove pelo par (folder, filename)
   async getFavorites() {
     const res = await fetch(`${API_BASE}/favorites`);
     return res.json();
@@ -195,7 +213,8 @@ export const api = {
     return res.json();
   },
 
-  // Reports
+  // ===== REPORTS (relatorios) =====
+  // CRUD dos relatorios pre-definidos
   async getReports() {
     const res = await fetch(`${API_BASE}/reports`);
     return res.json();
@@ -226,7 +245,8 @@ export const api = {
     return res.json();
   },
 
-  // Folder Colors
+  // ===== FOLDER COLORS (cores das pastas) =====
+  // Le lista de cores e define/remove a cor de uma pasta
   async getFolderColors() {
     const res = await fetch(`${API_BASE}/folder-colors`);
     return res.json();
@@ -248,7 +268,8 @@ export const api = {
     return res.json();
   },
 
-  // Bot Config
+  // ===== BOT CONFIG (bot do Telegram) =====
+  // Consulta o estado do token, define/remove token e para o bot
   async getBotConfig() {
     const res = await fetch(`${API_BASE}/bot-config`);
     return res.json();
@@ -268,7 +289,8 @@ export const api = {
     return res.json();
   },
 
-  // Diary
+  // ===== DIARY (diario de ocorrencias) =====
+  // CRUD das entradas do diario, com filtro opcional por data e busca
   async getDiary(filters = {}) {
     const params = new URLSearchParams();
     if (filters.date) params.append('date', filters.date);
@@ -300,7 +322,9 @@ export const api = {
     return res.json();
   },
 
-  // Toolbox
+  // ===== TOOLBOX (ferramentas) =====
+  // Codigos de observacao (CRUD), status SEFAZ, consulta CNPJ,
+  // configuracao Sintegra/BrasilAPI e validacao de chave NFe
   async getToolboxCodes() {
     const res = await fetch(`${API_BASE}/toolbox/codes`);
     return res.json();

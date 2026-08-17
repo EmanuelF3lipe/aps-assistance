@@ -1,3 +1,8 @@
+/**
+ * FilePanel.jsx - Painel central de arquivos do módulo APS.
+ * Mostra os erros da pasta selecionada em cards, com ordenação, favoritos e
+ * ações em lote (exportar CSV, mover e excluir).
+ */
 import { FiStar, FiPlus, FiDownload, FiTrash2, FiFolder } from 'react-icons/fi'
 
 export default function FilePanel({
@@ -16,6 +21,7 @@ export default function FilePanel({
   onBatchMove,
   folders
 }) {
+  // Marca/desmarca um arquivo na seleção em lote (usado pelo checkbox de cada card)
   const toggleSelect = (file, e) => {
     e.stopPropagation()
     const key = `${file.folder}-${file.filename || file.name}`
@@ -26,6 +32,7 @@ export default function FilePanel({
     }
   }
 
+  // Seleciona ou desmarca todos os arquivos da pasta atual de uma vez
   const toggleSelectAll = () => {
     if (selectedFiles.length === files.length) {
       onSelectBatch([])
@@ -36,6 +43,8 @@ export default function FilePanel({
 
   return (
     <div className="file-panel-vertical">
+      {/* ===== RENDERIZAÇÃO ===== */}
+      {/* Cabeçalho do painel: nome da pasta atual, contagem e botão Novo Erro */}
       <div className="file-panel-header">
         <div className="file-panel-header-left">
           <h2>{currentFolder || 'Selecione uma pasta'}</h2>
@@ -50,6 +59,7 @@ export default function FilePanel({
         )}
       </div>
 
+      {/* Barra de ordenação e seleção de todos os arquivos */}
       {currentFolder && files.length > 0 && (
         <div className="sort-bar">
           <label>Ordenar:</label>
@@ -75,6 +85,7 @@ export default function FilePanel({
         </div>
       )}
 
+      {/* Barra de ações em lote: exportar CSV, mover, excluir e cancelar */}
       {selectedFiles.length > 0 && (
         <div className="batch-bar">
           <span>{selectedFiles.length} selecionado(s)</span>
@@ -88,6 +99,8 @@ export default function FilePanel({
         </div>
       )}
 
+      {/* Estado vazio: nenhum erro encontrado na pasta ou na busca */}
+      {/* Se há erros, exibe a grade de cards (um por erro, com nome, tags e favorito) */}
       {files.length === 0 ? (
         <div className="empty-state-vertical">
           <p>Nenhum erro encontrado</p>
