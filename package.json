@@ -1,16 +1,59 @@
 {
   "name": "aps-assistance",
-  "version": "2.0.0",
-  "description": "Catálogo de Erros e Soluções - React + Express",
+  "version": "2.1.0",
+  "description": "Catálogo de Erros e Soluções - React + Express + SQLite",
+  "main": "electron/main.js",
   "type": "module",
   "scripts": {
     "dev": "concurrently \"npm run server\" \"npm run client\"",
     "client": "vite",
     "build": "vite build",
     "server": "node server/index.js",
-    "start": "npm run server"
+    "start": "npm run server",
+    "migrate": "node migrate.js",
+    "electron:dev": "npm run build && electron .",
+    "electron:build": "npm run build && electron-builder --win",
+    "electron:build:mac": "npm run build && electron-builder --mac",
+    "electron:build:linux": "npm run build && electron-builder --linux"
+  },
+  "build": {
+    "appId": "com.aps.assistance",
+    "productName": "APS Assistance",
+    "directories": {
+      "output": "release"
+    },
+    "files": [
+      "dist/**/*",
+      "electron/**/*",
+      "server/**/*",
+      "public/**/*",
+      "migrate.js",
+      "package.json"
+    ],
+    "extraResources": [],
+    "win": {
+      "target": "nsis",
+      "icon": "build/icon.ico"
+    },
+    "nsis": {
+      "oneClick": false,
+      "allowToChangeInstallationDirectory": true,
+      "createDesktopShortcut": true,
+      "installerIcon": "build/icon.ico",
+      "uninstallerIcon": "build/icon.ico",
+      "installerHeaderIcon": "build/icon.ico"
+    },
+    "mac": {
+      "target": "dmg",
+      "icon": "build/icon.ico"
+    },
+    "linux": {
+      "target": "AppImage",
+      "icon": "build/icon.ico"
+    }
   },
   "dependencies": {
+    "better-sqlite3": "^13.0.3",
     "express": "^4.18.2",
     "node-telegram-bot-api": "^1.2.0",
     "react": "^18.2.0",
@@ -22,6 +65,8 @@
   "devDependencies": {
     "@vitejs/plugin-react": "^4.2.0",
     "concurrently": "^8.2.2",
+    "electron": "^43.4.1",
+    "electron-builder": "^26.15.3",
     "vite": "^5.0.0"
   }
 }

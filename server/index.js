@@ -1,796 +1,103 @@
-// ============================================================================
-// APS ASSISTANCE - Servidor Backend (Express + Socket.IO)
-// ----------------------------------------------------------------------------
-// Responsavel por:
-//   - Servir a API REST consumida pelo frontend React (dist)
-//   - Armazenar os erros catalogados como arquivos .md na pasta /notion
-//   - Disponibilizar busca, tags, favoritos, lixeira, diario e relatorios
-//   - Toolbox: codigos de observacao, status SEFAZ, consulta CNPJ e chave NFe
-//   - Gerenciar o bot do Telegram (inicializacao, notificacoes e encerramento)
-// ============================================================================
-import express from 'express';
+﻿import express from 'express';
 import fs from 'fs';
 import path from 'path';
 import { fileURLToPath } from 'url';
 import crypto from 'crypto';
 import os from 'os';
-import { createServer } from 'http';
+import http from 'http';
 import { Server } from 'socket.io';
+import { getDb, closeDb } from './database.js';
 import { initBot, sendNotification, stopBot } from './telegram-bot.js';
-
-// Encerramento gracioso do servidor ao receber SIGINT/SIGTERM
-process.on('SIGINT', () => handleQuit());
-process.on('SIGTERM', () => handleQuit());
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
-
-// Arquivos de configuracao persistidos em JSON no diretorio do servidor
-const BOT_CONFIG_FILE = path.join(__dirname, '..', 'bot-config.json');
-const DIARY_FILE = path.join(__dirname, '..', 'diary.json');
-
-// Carrega a configuracao do bot (token do Telegram) a partir do arquivo
-function loadBotConfig() {
-  if (fs.existsSync(BOT_CONFIG_FILE)) {
-    try { return JSON.parse(fs.readFileSync(BOT_CONFIG_FILE, 'utf8')); } catch (e) {}
-  }
-  return { token: '' };
-}
-
-const app = express();
-const httpServer = createServer(app);
-const io = new Server(httpServer, { cors: { origin: '*' } });
-const PORT = 3000;
-
-// ===== APONTAMENTOS DE ARMAZENAMENTO EM ARQUIVO =====
-// O sistema persiste tudo em disco (sem banco de dados):
-//   - NOTION_PATH: raiz com as pastas de erros (.md + _images)
-//   - favorites/folder-colors/reports: arquivos JSON de estado da interface
-//   - TRASH_FOLDER: pasta "_erros_nao_catalogados" que funciona como lixeira
 const NOTION_PATH = path.join(__dirname, '..', '..', 'notion');
-const FAVORITES_FILE = path.join(__dirname, '..', 'favorites.json');
-const REPORTS_FILE = path.join(__dirname, '..', 'reports.json');
-const FOLDER_COLORS_FILE = path.join(__dirname, '..', 'folder-colors.json');
 const IMAGES_DIR = path.join(NOTION_PATH, '_images');
 const TRASH_FOLDER = '_erros_nao_catalogados';
+const SEFAZ_URL = 'https://www.nfe.fazenda.gov.br/portal/disponibilidade.aspx';
+const CNPJ_CACHE_TTL = 24 * 3600 * 1000;
+let LAST_BRASILAPI_AT = 0;
+const BRASILAPI_MIN_GAP = 25000;
+const NF_UF_CODES = { '11': 'RO', '12': 'AC', '13': 'AM', '14': 'RR', '15': 'PA', '16': 'AP', '17': 'TO', '21': 'MA', '22': 'PI', '23': 'CE', '24': 'RN', '25': 'PB', '26': 'PE', '27': 'AL', '28': 'SE', '29': 'BA', '31': 'MG', '32': 'ES', '33': 'RJ', '35': 'SP', '41': 'PR', '42': 'SC', '43': 'RS', '50': 'MS', '51': 'MT', '52': 'GO', '53': 'DF', '91': 'AN' };
 
-// Criar pasta de imagens se não existir
-if (!fs.existsSync(IMAGES_DIR)) {
-  fs.mkdirSync(IMAGES_DIR, { recursive: true });
+let io;
+let httpServer;
+
+function findFolder(name) {
+  const db = getDb();
+  const normReq = name.normalize('NFC');
+  const all = db.prepare('SELECT id, name FROM folders').all();
+  return all.find(f => f.name.normalize('NFC') === normReq) || null;
 }
 
-// ===== MIDDLEWARES =====
-// body parser JSON com limite ampliado (10mb) para uploads de anexos base64,
-// servir a build do frontend (dist) e a lixeira/pasta de imagens
-app.use(express.json({ limit: '10mb' }));
-
-// Criar pasta de lixo se não existir
-const trashPath = path.join(NOTION_PATH, TRASH_FOLDER);
-if (!fs.existsSync(trashPath)) {
-  fs.mkdirSync(trashPath, { recursive: true });
+function findFile(folderId, name) {
+  return getDb().prepare('SELECT id, name, content FROM files WHERE folder_id = ? AND name = ?').get(folderId, name);
 }
 
-app.use(express.json());
-app.use(express.static(path.join(__dirname, '..', 'dist')));
-
-// Public form page (standalone HTML, no React)
-app.get('/cadastrar', (req, res) => {
-  res.sendFile(path.join(__dirname, '..', 'public', 'cadastrar.html'));
-});
-
-// Leitura/gravacao dos favoritos armazenados em favorites.json
-function loadFavorites() {
-  if (fs.existsSync(FAVORITES_FILE)) {
-    return JSON.parse(fs.readFileSync(FAVORITES_FILE, 'utf8'));
-  }
-  return [];
+function stripMd(name) {
+  return name && name.endsWith('.md') ? name.slice(0, -3) : name;
 }
 
-function saveFavorites(favs) {
-  fs.writeFileSync(FAVORITES_FILE, JSON.stringify(favs, null, 2), 'utf8');
+function loadBotConfig() {
+  const db = getDb();
+  const row = db.prepare('SELECT value FROM bot_config WHERE key = ?').get('token');
+  return { token: row ? row.value : '' };
 }
 
-function getAllFolders() {
-  if (!fs.existsSync(NOTION_PATH)) return [];
-  return fs.readdirSync(NOTION_PATH)
-    .filter(f => fs.statSync(path.join(NOTION_PATH, f)).isDirectory() && f !== TRASH_FOLDER && f !== '_images')
-    .map(f => ({ name: f, path: f }));
-}
-
-// ===== FOLDERS (CRUD de pastas/sistemas) =====
-// Cada pasta em /notion representa um sistema; as rotas abaixo criam,
-// renomeiam e excluem pastas, notificando os clientes via socket.io
-app.get('/api/folders', (req, res) => {
-  res.json(getAllFolders());
-});
-
-app.post('/api/folders', (req, res) => {
-  const { name } = req.body;
-  const folderPath = path.join(NOTION_PATH, name);
-  if (fs.existsSync(folderPath)) {
-    return res.status(400).json({ error: 'Pasta já existe' });
-  }
-  fs.mkdirSync(folderPath, { recursive: true });
-  io.emit('data-changed');
-  res.json({ success: true });
-});
-
-app.put('/api/folders/:oldName', (req, res) => {
-  const { oldName } = req.params;
-  const { newName } = req.body;
-  const oldPath = path.join(NOTION_PATH, oldName);
-  const newPath = path.join(NOTION_PATH, newName);
-  if (!fs.existsSync(oldPath)) {
-    return res.status(404).json({ error: 'Pasta não encontrada' });
-  }
-  if (fs.existsSync(newPath) && oldPath !== newPath) {
-    return res.status(400).json({ error: 'Já existe uma pasta com esse nome' });
-  }
-  fs.renameSync(oldPath, newPath);
-  io.emit('data-changed');
-  res.json({ success: true });
-});
-
-// Exclui a pasta; os arquivos .md que ainda existirem sao movidos para a lixeira
-app.delete('/api/folders/:name', (req, res) => {
-  const folderPath = resolveFolderPath(req.params.name);
-  if (!folderPath) return res.status(404).json({ error: 'Pasta não encontrada' });
-  
-  const files = fs.readdirSync(folderPath).filter(f => f.endsWith('.md'));
-  if (files.length > 0) {
-    const trashDir = path.join(NOTION_PATH, TRASH_FOLDER);
-    if (!fs.existsSync(trashDir)) {
-      fs.mkdirSync(trashDir, { recursive: true });
-    }
-    
-    files.forEach(file => {
-      const source = path.join(folderPath, file);
-      const dest = path.join(trashDir, `${path.basename(folderPath)}__${file}`);
-      fs.renameSync(source, dest);
-    });
-  }
-
-  fs.rmSync(folderPath, { recursive: true });
-  io.emit('data-changed');
-  res.json({ success: true, movedFiles: files.length });
-});
-
-// Resolve o caminho real de uma pasta comparando nomes normalizados em Unicode
-// (necessario pois o browser pode enviar a acentuacao de forma diferente)
-function resolveFolderPath(requestedFolder) {
-  if (!fs.existsSync(NOTION_PATH)) return null;
-  const dirs = fs.readdirSync(NOTION_PATH).filter(f => fs.statSync(path.join(NOTION_PATH, f)).isDirectory());
-  const normReq = requestedFolder.normalize('NFC');
-  for (const d of dirs) {
-    if (d.normalize('NFC') === normReq) return path.join(NOTION_PATH, d);
-  }
-  return null;
-}
-
-// ===== FILES (CRUD de erros em arquivos .md) =====
-// Cada erro catalogado e um arquivo markdown dentro da pasta do sistema.
-// Alteracoes emitem "data-changed" (socket.io) e notificam via Telegram
-app.get('/api/files/:folder', (req, res) => {
-  const folderPath = resolveFolderPath(req.params.folder);
-  if (!folderPath) return res.json([]);
-  const files = fs.readdirSync(folderPath)
-    .filter(f => f.endsWith('.md'))
-    .map(f => ({ name: f.replace('.md', ''), filename: f, folder: path.basename(folderPath) }));
-  res.json(files);
-});
-
-app.get('/api/file/:folder/:filename', (req, res) => {
-  const folderPath = resolveFolderPath(req.params.folder);
-  if (!folderPath) return res.status(404).json({ error: 'Pasta não encontrada' });
-  const filePath = path.join(folderPath, req.params.filename);
-  if (!fs.existsSync(filePath)) {
-    return res.status(404).json({ error: 'Arquivo não encontrado' });
-  }
-  const content = fs.readFileSync(filePath, 'utf8');
-  res.json({ content, filename: req.params.filename, folder: path.basename(folderPath) });
-});
-
-app.post('/api/file/:folder', (req, res) => {
-  const folderPath = resolveFolderPath(req.params.folder);
-  const targetPath = folderPath || path.join(NOTION_PATH, req.params.folder);
-  if (!fs.existsSync(targetPath)) {
-    fs.mkdirSync(targetPath, { recursive: true });
-  }
-  const filePath = path.join(targetPath, req.body.filename + '.md');
-  fs.writeFileSync(filePath, content, 'utf8');
-  io.emit('data-changed');
-  sendNotification(`📝 *Novo erro criado:*\n${filename} (${folder})`);
-  res.json({ success: true, filename });
-});
-
-app.put('/api/file/:folder/:filename', (req, res) => {
-  const folderPath = resolveFolderPath(req.params.folder);
-  if (!folderPath) return res.status(404).json({ error: 'Pasta não encontrada' });
-  const filePath = path.join(folderPath, req.params.filename);
-  if (!fs.existsSync(filePath)) {
-    return res.status(404).json({ error: 'Arquivo não encontrado' });
-  }
-  fs.writeFileSync(filePath, req.body.content, 'utf8');
-  io.emit('data-changed');
-  sendNotification(`✏️ *Erro atualizado:*\n${req.params.filename.replace('.md', '')} (${path.basename(folderPath)})`);
-  res.json({ success: true });
-});
-
-app.delete('/api/file/:folder/:filename', (req, res) => {
-  const folderPath = resolveFolderPath(req.params.folder);
-  if (!folderPath) return res.status(404).json({ error: 'Pasta não encontrada' });
-  const filePath = path.join(folderPath, req.params.filename);
-  
-  if (fs.existsSync(filePath)) {
-    const trashDir = path.join(NOTION_PATH, TRASH_FOLDER);
-    if (!fs.existsSync(trashDir)) {
-      fs.mkdirSync(trashDir, { recursive: true });
-    }
-    const dest = path.join(trashDir, `${path.basename(folderPath)}__${req.params.filename}`);
-    fs.renameSync(filePath, dest);
-  }
-  
-  io.emit('data-changed');
-  sendNotification(`🗑️ *Erro excluido:*\n${req.params.filename.replace('.md', '')} (${path.basename(folderPath)})`);
-  res.json({ success: true });
-});
-
-// Atualizar tags de um arquivo
-// Remove a secao "## Tags" existente no markdown e grava a nova lista
-app.put('/api/file/:folder/:filename/tags', (req, res) => {
-  const folderPath = resolveFolderPath(req.params.folder);
-  if (!folderPath) return res.status(404).json({ error: 'Pasta não encontrada' });
-  const filePath = path.join(folderPath, req.params.filename);
-  
-  if (!fs.existsSync(filePath)) {
-    return res.status(404).json({ error: 'Arquivo não encontrado' });
-  }
-  
-  let content = fs.readFileSync(filePath, 'utf8');
-  
-  // Remover seção de tags existente
-  content = content.replace(/\n## Tags\n[\s\S]*?(?=\n## |\n# |\nÚltima|$)/, '');
-  
-  // Adicionar novas tags
-  if (req.body.tags && req.body.tags.length > 0) {
-    const tagsSection = '\n## Tags\n' + req.body.tags.map(t => `- ${t}`).join('\n');
-    content += tagsSection;
-  }
-  
-  fs.writeFileSync(filePath, content, 'utf8');
-  io.emit('data-changed');
-  res.json({ success: true });
-});
-
-app.put('/api/file/:folder/:filename/rename', (req, res) => {
-  const folderPath = resolveFolderPath(req.params.folder);
-  if (!folderPath) return res.status(404).json({ error: 'Pasta não encontrada' });
-  let { newFilename } = req.body;
-  if (!newFilename) return res.status(400).json({ error: 'Nome obrigatorio' });
-  if (!newFilename.endsWith('.md')) newFilename += '.md';
-  const oldPath = path.join(folderPath, req.params.filename);
-  const newPath = path.join(folderPath, newFilename);
-  if (!fs.existsSync(oldPath)) {
-    return res.status(404).json({ error: 'Arquivo não encontrado' });
-  }
-  if (fs.existsSync(newPath) && oldPath !== newPath) {
-    return res.status(400).json({ error: 'Já existe um arquivo com esse nome' });
-  }
-  fs.renameSync(oldPath, newPath);
-  io.emit('data-changed');
-  sendNotification(`📝 *Erro renomeado:*\n${req.params.filename.replace('.md', '')} → ${newFilename.replace('.md', '')} (${path.basename(folderPath)})`);
-  res.json({ success: true, newFilename });
-});
-
-app.put('/api/file/:folder/:filename/move', (req, res) => {
-  const folderPath = resolveFolderPath(req.params.folder);
-  if (!folderPath) return res.status(404).json({ error: 'Pasta não encontrada' });
-  const sourcePath = path.join(folderPath, req.params.filename);
-  const targetFolderPath = resolveFolderPath(req.body.targetFolder);
-  if (!targetFolderPath) {
-    return res.status(404).json({ error: 'Pasta destino não encontrada' });
-  }
-  if (!fs.existsSync(sourcePath)) {
-    return res.status(404).json({ error: 'Arquivo não encontrado' });
-  }
-  const targetPath = path.join(targetFolderPath, req.params.filename);
-  if (fs.existsSync(targetPath)) {
-    return res.status(400).json({ error: 'Já existe um arquivo com esse nome na pasta destino' });
-  }
-  fs.renameSync(sourcePath, targetPath);
-  io.emit('data-changed');
-  sendNotification(`📦 *Erro movido:*\n${req.params.filename.replace('.md', '')}\n${path.basename(folderPath)} → ${path.basename(targetFolderPath)}`);
-  res.json({ success: true });
-});
-
-// ===== SEARCH (busca simples e busca avancada) =====
-// Varre o conteudo de todos os .md buscando a palavra-chave (e as tags),
-// retornando trecho inicial do arquivo e as tags de cada resultado
-app.get('/api/search', (req, res) => {
-  const query = req.query.q.toLowerCase();
-  const results = [];
-  const folders = getAllFolders();
-  folders.forEach(({ path: folder }) => {
-    const folderPath = path.join(NOTION_PATH, folder);
-    if (!fs.existsSync(folderPath)) return;
-    const files = fs.readdirSync(folderPath).filter(f => f.endsWith('.md'));
-    files.forEach(file => {
-      const content = fs.readFileSync(path.join(folderPath, file), 'utf8');
-      if (content.toLowerCase().includes(query) || file.toLowerCase().includes(query)) {
-        const tagMatch = content.match(/## Tags\n([\s\S]*?)$/);
-        const tags = tagMatch ? tagMatch[1].split('\n').filter(t => t.startsWith('-')).map(t => t.replace('- ', '').trim()) : [];
-        results.push({ name: file.replace('.md', ''), filename: file, folder, excerpt: content.substring(0, 150), tags });
-      }
-    });
-  });
-  res.json(results);
-});
-
-// Busca avancada: combina palavra-chave, pasta, tags e intervalo de datas
-// (a data e extraida do campo "Criado em" presente no markdown)
-app.get('/api/search/advanced', (req, res) => {
-  const { q, folder, tags, dateFrom, dateTo } = req.query;
-  const query = q ? q.toLowerCase() : '';
-  const results = [];
-  const folders = getAllFolders();
-
-  folders.forEach(({ path: folderPath }) => {
-    if (folder && folderPath !== folder) return;
-
-    const fullFolderPath = path.join(NOTION_PATH, folderPath);
-    if (!fs.existsSync(fullFolderPath)) return;
-
-    const files = fs.readdirSync(fullFolderPath).filter(f => f.endsWith('.md'));
-    files.forEach(file => {
-      const content = fs.readFileSync(path.join(fullFolderPath, file), 'utf8');
-
-      if (query && !content.toLowerCase().includes(query) && !file.toLowerCase().includes(query)) return;
-
-      if (tags) {
-        const tagMatch = content.match(/## Tags\n([\s\S]*?)$/);
-        const fileTags = tagMatch ? tagMatch[1].split('\n').filter(t => t.startsWith('-')).map(t => t.replace('- ', '').trim()) : [];
-        const searchTags = tags.split(',').map(t => t.trim().toLowerCase());
-        if (!searchTags.some(st => fileTags.some(ft => ft.toLowerCase().includes(st)))) return;
-      }
-
-      if (dateFrom || dateTo) {
-        const dateMatch = content.match(/\*\*Criado em:\*\*\s*(\d{2}\/\d{2}\/\d{4})/);
-        if (dateMatch) {
-          const [, dateStr] = dateMatch;
-          const [day, month, year] = dateStr.split('/');
-          const fileDate = new Date(year, month - 1, day);
-          if (dateFrom) {
-            const [fy, fm, fd] = dateFrom.split('-');
-            const fromDate = new Date(fy, fm - 1, fd);
-            if (fileDate < fromDate) return;
-          }
-          if (dateTo) {
-            const [ty, tm, td] = dateTo.split('-');
-            const toDate = new Date(ty, tm - 1, td);
-            if (fileDate > toDate) return;
-          }
-        }
-      }
-
-      const tagMatch = content.match(/## Tags\n([\s\S]*?)$/);
-      const fileTags = tagMatch ? tagMatch[1].split('\n').filter(t => t.startsWith('-')).map(t => t.replace('- ', '').trim()) : [];
-
-      results.push({
-        name: file.replace('.md', ''),
-        filename: file,
-        folder: folderPath,
-        excerpt: content.substring(0, 150),
-        tags: fileTags
-      });
-    });
-  });
-
-  res.json(results);
-});
-
-// ===== STATS =====
-// Estatisticas gerais: total de erros por pasta, arquivos recentemente
-// modificados (top 10) e contagem de uso de cada tag
-app.get('/api/stats', (req, res) => {
-  const folders = getAllFolders();
-  const stats = { total: 0, byFolder: {}, recentFiles: [], tags: {} };
-  folders.forEach(({ path: folder }) => {
-    const folderPath = path.join(NOTION_PATH, folder);
-    if (!fs.existsSync(folderPath)) { stats.byFolder[folder] = 0; return; }
-    const files = fs.readdirSync(folderPath).filter(f => f.endsWith('.md'));
-    stats.byFolder[folder] = files.length;
-    stats.total += files.length;
-    files.forEach(file => {
-      const filePath = path.join(folderPath, file);
-      const stat = fs.statSync(filePath);
-      const content = fs.readFileSync(filePath, 'utf8');
-      stats.recentFiles.push({ name: file.replace('.md', ''), filename: file, folder, modified: stat.mtime });
-      const tagMatch = content.match(/## Tags\n([\s\S]*?)$/);
-      if (tagMatch) {
-        tagMatch[1].split('\n').filter(t => t.startsWith('-')).map(t => t.replace('- ', '').trim()).forEach(tag => {
-          stats.tags[tag] = (stats.tags[tag] || 0) + 1;
-        });
-      }
-    });
-  });
-  stats.recentFiles.sort((a, b) => new Date(b.modified) - new Date(a.modified));
-  stats.recentFiles = stats.recentFiles.slice(0, 10);
-  res.json(stats);
-});
-
-// ===== FAVORITES (erros favoritados) =====
-// CRUD de favoritos persistido em favorites.json, sem duplicatas
-app.get('/api/favorites', (req, res) => {
-  res.json(loadFavorites());
-});
-
-app.post('/api/favorites', (req, res) => {
-  const { filename, folder } = req.body;
-  const favs = loadFavorites();
-  if (!favs.find(f => f.filename === filename && f.folder === folder)) {
-    favs.push({ filename, folder, added: new Date() });
-    saveFavorites(favs);
-  }
-  io.emit('data-changed');
-  res.json({ success: true });
-});
-
-app.delete('/api/favorites/:folder/:filename', (req, res) => {
-  const { folder, filename } = req.params;
-  let favs = loadFavorites();
-  favs = favs.filter(f => !(f.filename === filename && f.folder === folder));
-  saveFavorites(favs);
-  io.emit('data-changed');
-  res.json({ success: true });
-});
-
-// ===== TAGS =====
-// Mapa de todas as tags existentes nos arquivos, com a lista de erros de cada uma
-app.get('/api/tags', (req, res) => {
-  const tags = {};
-  const folders = getAllFolders();
-  folders.forEach(({ path: folder }) => {
-    const folderPath = path.join(NOTION_PATH, folder);
-    if (!fs.existsSync(folderPath)) return;
-    const files = fs.readdirSync(folderPath).filter(f => f.endsWith('.md'));
-    files.forEach(file => {
-      const content = fs.readFileSync(path.join(folderPath, file), 'utf8');
-      const tagMatch = content.match(/## Tags\n([\s\S]*?)$/);
-      if (tagMatch) {
-        tagMatch[1].split('\n').filter(t => t.startsWith('-')).map(t => t.replace('- ', '').trim()).forEach(tag => {
-          if (!tags[tag]) tags[tag] = [];
-          tags[tag].push({ filename: file, folder });
-        });
-      }
-    });
-  });
-  res.json(tags);
-});
-
-// ===== TRASH (lixeira de erros nao catalogados) =====
-// Arquivos excluidos vao para "_erros_nao_catalogados" com o prefixo
-// "pastaOrigem__nome_arquivo", permitindo restauracao ou exclusao definitiva
-// Trash endpoints
-app.get('/api/trash', (req, res) => {
-  const trashDir = path.join(NOTION_PATH, TRASH_FOLDER);
-  if (!fs.existsSync(trashDir)) return res.json([]);
-  
-  const files = fs.readdirSync(trashDir)
-    .filter(f => f.endsWith('.md'))
-    .map(f => {
-      const parts = f.split('__');
-      const originalFolder = parts.length > 1 ? parts[0] : 'desconhecido';
-      const originalName = parts.length > 1 ? parts.slice(1).join('__').replace('.md', '') : f.replace('.md', '');
-      return {
-        name: originalName,
-        filename: f,
-        folder: TRASH_FOLDER,
-        originalFolder: originalFolder
-      };
-    });
-  
-  res.json(files);
-});
-
-// Devolve o arquivo para a pasta de origem (reconstituida a partir do prefixo,
-// com fallback para "scgwin" caso o nome nao siga o padrao)
-app.put('/api/trash/restore/:filename', (req, res) => {
-  const { filename } = req.params;
-  const trashDir = path.join(NOTION_PATH, TRASH_FOLDER);
-  const filePath = path.join(trashDir, filename);
-  
-  if (!fs.existsSync(filePath)) {
-    return res.status(404).json({ error: 'Arquivo não encontrado' });
-  }
-  
-  const parts = filename.split('__');
-  const originalFolder = parts.length > 1 ? parts[0] : 'scgwin';
-  const originalFilename = parts.length > 1 ? parts.slice(1).join('__') : filename;
-  
-  const targetDir = path.join(NOTION_PATH, originalFolder);
-  if (!fs.existsSync(targetDir)) {
-    fs.mkdirSync(targetDir, { recursive: true });
-  }
-  
-  const targetPath = path.join(targetDir, originalFilename);
-  fs.renameSync(filePath, targetPath);
-  
-  io.emit('data-changed');
-  res.json({ success: true });
-});
-
-// Exclusao definitiva de um arquivo da lixeira e esvaziamento total da lixeira
-app.delete('/api/trash/:filename', (req, res) => {
-  const { filename } = req.params;
-  const trashDir = path.join(NOTION_PATH, TRASH_FOLDER);
-  const filePath = path.join(trashDir, filename);
-  
-  if (fs.existsSync(filePath)) {
-    fs.unlinkSync(filePath);
-  }
-  
-  io.emit('data-changed');
-  res.json({ success: true });
-});
-
-app.delete('/api/trash', (req, res) => {
-  const trashDir = path.join(NOTION_PATH, TRASH_FOLDER);
-  if (fs.existsSync(trashDir)) {
-    const files = fs.readdirSync(trashDir).filter(f => f.endsWith('.md'));
-    files.forEach(file => {
-      fs.unlinkSync(path.join(trashDir, file));
-    });
-  }
-  io.emit('data-changed');
-  res.json({ success: true });
-});
-
-// ===== FOLDER COLORS (cores personalizadas por pasta) =====
-// Persistidas em folder-colors.json; cores default para os sistemas conhecidos
-// Folder Colors
 function loadFolderColors() {
-  if (!fs.existsSync(FOLDER_COLORS_FILE)) {
-    const defaults = {
-      scgwin: '#3b82f6',
-      agilis: '#10b981',
-      corpore: '#f59e0b',
-      sgnfe: '#8b5cf6'
-    };
-    fs.writeFileSync(FOLDER_COLORS_FILE, JSON.stringify(defaults, null, 2), 'utf8');
-    return defaults;
+  const db = getDb();
+  const row = db.prepare('SELECT value FROM config WHERE key = ?').get('folder-colors');
+  if (row) {
+    try { return JSON.parse(row.value); } catch (e) {}
   }
-  return JSON.parse(fs.readFileSync(FOLDER_COLORS_FILE, 'utf8'));
+  const defaults = { scgwin: '#3b82f6', agilis: '#10b981', corpore: '#f59e0b', sgnfe: '#8b5cf6' };
+  db.prepare('INSERT OR REPLACE INTO config(key, value) VALUES(?, ?)').run('folder-colors', JSON.stringify(defaults));
+  return defaults;
 }
 
 function saveFolderColors(colors) {
-  fs.writeFileSync(FOLDER_COLORS_FILE, JSON.stringify(colors, null, 2), 'utf8');
+  getDb().prepare('INSERT OR REPLACE INTO config(key, value) VALUES(?, ?)').run('folder-colors', JSON.stringify(colors));
 }
 
-app.get('/api/folder-colors', (req, res) => {
-  const colors = loadFolderColors();
-  res.json(colors);
-});
-
-app.put('/api/folder-colors/:folder', (req, res) => {
-  const { folder } = req.params;
-  const { color } = req.body;
-  if (!color) return res.status(400).json({ error: 'Cor obrigatoria' });
-  const colors = loadFolderColors();
-  colors[folder] = color;
-  saveFolderColors(colors);
-  io.emit('data-changed');
-  res.json({ success: true });
-});
-
-app.delete('/api/folder-colors/:folder', (req, res) => {
-  const { folder } = req.params;
-  const colors = loadFolderColors();
-  delete colors[folder];
-  saveFolderColors(colors);
-  io.emit('data-changed');
-  res.json({ success: true });
-});
-
-// ===== REPORTS (relatorios pre-definidos) =====
-// CRUD de relatorios persistido em reports.json, iniciando com defaults
-// Reports CRUD
-function loadReports() {
-  if (!fs.existsSync(REPORTS_FILE)) {
-    const defaults = [
-      { id: '1', title: 'Relatório de Vendas', category: 'vendas', content: 'Relatório com todas as vendas do período.' },
-      { id: '2', title: 'Relatório Financeiro', category: 'financeiro', content: 'Relatório com dados financeiros gerais.' },
-      { id: '3', title: 'Relatório de Estoque', category: 'estoque', content: 'Relatório com status do estoque.' },
-      { id: '4', title: 'Relatório de Compras', category: 'compras', content: 'Relatório com pedidos de compra.' },
-      { id: '5', title: 'Relatório Gerencial', category: 'gerenciais', content: 'Relatório para gestores.' },
-      { id: '6', title: 'Relatório de Clientes', category: 'clientes', content: 'Relatório com dados dos clientes.' }
-    ];
-    fs.writeFileSync(REPORTS_FILE, JSON.stringify(defaults, null, 2), 'utf8');
-    return defaults;
+function loadToolboxConfig() {
+  const db = getDb();
+  const row = db.prepare('SELECT value FROM config WHERE key = ?').get('toolbox-config');
+  if (row) {
+    try { return JSON.parse(row.value); } catch (e) {}
   }
-  return JSON.parse(fs.readFileSync(REPORTS_FILE, 'utf8'));
+  return {};
 }
 
-function saveReports(reports) {
-  fs.writeFileSync(REPORTS_FILE, JSON.stringify(reports, null, 2), 'utf8');
+function saveToolboxConfig(cfg) {
+  getDb().prepare('INSERT OR REPLACE INTO config(key, value) VALUES(?, ?)').run('toolbox-config', JSON.stringify(cfg));
 }
 
-app.get('/api/reports', (req, res) => {
-  const reports = loadReports();
-  res.json(reports);
-});
+function getCnpjCache(cnpj) {
+  const db = getDb();
+  const row = db.prepare('SELECT data, cached_at FROM cnpj_cache WHERE cnpj = ?').get(cnpj);
+  if (!row) return null;
+  const cachedAt = new Date(row.cached_at + 'Z').getTime();
+  return { at: cachedAt, data: JSON.parse(row.data) };
+}
 
-app.post('/api/reports', (req, res) => {
-  const { title, category, content } = req.body;
-  if (!title) return res.status(400).json({ error: 'Titulo obrigatorio' });
-  const reports = loadReports();
-  const newReport = {
-    id: Date.now().toString(),
-    title,
-    category: category || 'geral',
-    content: content || ''
-  };
-  reports.push(newReport);
-  saveReports(reports);
-  io.emit('data-changed');
-  res.json(newReport);
-});
+function saveCnpjCacheEntry(cnpj, data) {
+  getDb().prepare('INSERT OR REPLACE INTO cnpj_cache(cnpj, data, cached_at) VALUES(?, ?, CURRENT_TIMESTAMP)').run(cnpj, JSON.stringify(data));
+}
 
-app.put('/api/reports/:id', (req, res) => {
-  const { id } = req.params;
-  const { title, category, content } = req.body;
-  const reports = loadReports();
-  const idx = reports.findIndex(r => r.id === id);
-  if (idx === -1) return res.status(404).json({ error: 'Relatorio nao encontrado' });
-  if (title !== undefined) reports[idx].title = title;
-  if (category !== undefined) reports[idx].category = category;
-  if (content !== undefined) reports[idx].content = content;
-  saveReports(reports);
-  io.emit('data-changed');
-  res.json(reports[idx]);
-});
-
-app.delete('/api/reports/:id', (req, res) => {
-  const { id } = req.params;
-  let reports = loadReports();
-  reports = reports.filter(r => r.id !== id);
-  saveReports(reports);
-  io.emit('data-changed');
-  res.json({ success: true });
-});
-
-// ===== DIARY (diario de ocorrencias) =====
-// Registro diario de ocorrencias com categoria, prioridade, autor e turno;
-// suporta filtro por data e busca por texto (persistido em diary.json)
-// Diary CRUD
-function loadDiary() {
-  if (!fs.existsSync(DIARY_FILE)) {
-    fs.writeFileSync(DIARY_FILE, '[]', 'utf8');
-    return [];
+function syncFileTags(fileId, content) {
+  const db = getDb();
+  db.prepare('DELETE FROM file_tags WHERE file_id = ?').run(fileId);
+  const tagMatch = content ? content.match(/## Tags\n([\s\S]*?)$/) : null;
+  if (tagMatch) {
+    const tagNames = tagMatch[1].split('\n').filter(t => t.startsWith('-')).map(t => t.replace('- ', '').trim()).filter(Boolean);
+    for (const tagName of tagNames) {
+      db.prepare('INSERT OR IGNORE INTO tags(name) VALUES(?)').run(tagName);
+      const tag = db.prepare('SELECT id FROM tags WHERE name = ?').get(tagName);
+      if (tag) db.prepare('INSERT INTO file_tags(file_id, tag_id) VALUES(?, ?)').run(fileId, tag.id);
+    }
   }
-  try { return JSON.parse(fs.readFileSync(DIARY_FILE, 'utf8')); } catch (e) { return []; }
-}
-function saveDiary(entries) {
-  fs.writeFileSync(DIARY_FILE, JSON.stringify(entries, null, 2), 'utf8');
 }
 
-app.get('/api/diary', (req, res) => {
-  const { date, search } = req.query;
-  let entries = loadDiary();
-  if (date) entries = entries.filter(e => e.date === date);
-  if (search) {
-    const q = search.toLowerCase();
-    entries = entries.filter(e => e.content.toLowerCase().includes(q) || e.title.toLowerCase().includes(q) || (e.author || '').toLowerCase().includes(q));
-  }
-  entries.sort((a, b) => new Date(b.createdAt) - new Date(a.createdAt));
-  res.json(entries);
-});
-
-app.post('/api/diary', (req, res) => {
-  const { title, content, category, priority, author, shift } = req.body;
-  if (!title || !content) return res.status(400).json({ error: 'Titulo e conteudo obrigatorios' });
-  const entries = loadDiary();
-  const entry = {
-    id: Date.now().toString(),
-    title,
-    content,
-    category: category || 'ocorrencia',
-    priority: priority || 'normal',
-    author: author || 'Anonimo',
-    shift: shift || '',
-    date: new Date().toLocaleDateString('pt-BR'),
-    createdAt: new Date().toISOString(),
-    resolved: false
-  };
-  entries.push(entry);
-  saveDiary(entries);
-  io.emit('data-changed');
-  res.json(entry);
-});
-
-app.put('/api/diary/:id', (req, res) => {
-  const { id } = req.params;
-  const { resolved, content, priority } = req.body;
-  const entries = loadDiary();
-  const idx = entries.findIndex(e => e.id === id);
-  if (idx === -1) return res.status(404).json({ error: 'Entrada nao encontrada' });
-  if (resolved !== undefined) {
-    entries[idx].resolved = resolved;
-    if (resolved) entries[idx].resolvedAt = new Date().toISOString();
-    else entries[idx].resolvedAt = null;
-  }
-  if (content !== undefined) entries[idx].content = content;
-  if (priority !== undefined) entries[idx].priority = priority;
-  entries[idx].updatedAt = new Date().toISOString();
-  saveDiary(entries);
-  io.emit('data-changed');
-  res.json(entries[idx]);
-});
-
-app.delete('/api/diary/:id', (req, res) => {
-  const { id } = req.params;
-  let entries = loadDiary();
-  entries = entries.filter(e => e.id !== id);
-  saveDiary(entries);
-  io.emit('data-changed');
-  res.json({ success: true });
-});
-
-// ===== TOOLBOX - CODIGOS DE OBSERVACAO =====
-// Cadastro de codigos padrao usados nas observacoes (persistido em toolbox.json)
-// Toolbox - codigos de observacao
-const TOOLBOX_FILE = path.join(__dirname, '..', 'toolbox.json');
-
-function loadToolbox() {
-  if (!fs.existsSync(TOOLBOX_FILE)) {
-    fs.writeFileSync(TOOLBOX_FILE, JSON.stringify({ codes: [] }, null, 2), 'utf8');
-    return { codes: [] };
-  }
-  try { return JSON.parse(fs.readFileSync(TOOLBOX_FILE, 'utf8')); } catch (e) { return { codes: [] }; }
-}
-function saveToolbox(data) {
-  fs.writeFileSync(TOOLBOX_FILE, JSON.stringify(data, null, 2), 'utf8');
-}
-
-app.get('/api/toolbox/codes', (req, res) => {
-  res.json(loadToolbox().codes || []);
-});
-
-app.post('/api/toolbox/codes', (req, res) => {
-  const { codigo, descricao } = req.body;
-  if (!codigo || !descricao) return res.status(400).json({ error: 'Codigo e descricao obrigatorios' });
-  const data = loadToolbox();
-  const item = { id: Date.now().toString(), codigo: String(codigo), descricao: String(descricao) };
-  (data.codes ||= []).push(item);
-  saveToolbox(data);
-  res.json(item);
-});
-
-app.put('/api/toolbox/codes/:id', (req, res) => {
-  const { id } = req.params;
-  const data = loadToolbox();
-  const idx = (data.codes || []).findIndex(c => c.id === id);
-  if (idx === -1) return res.status(404).json({ error: 'Codigo nao encontrado' });
-  if (req.body.codigo !== undefined) data.codes[idx].codigo = String(req.body.codigo);
-  if (req.body.descricao !== undefined) data.codes[idx].descricao = String(req.body.descricao);
-  saveToolbox(data);
-  res.json(data.codes[idx]);
-});
-
-app.delete('/api/toolbox/codes/:id', (req, res) => {
-  const { id } = req.params;
-  const data = loadToolbox();
-  data.codes = (data.codes || []).filter(c => c.id !== id);
-  saveToolbox(data);
-  res.json({ success: true });
-});
-
-// ===== TOOLBOX - STATUS SEFAZ (scraping do portal oficial) =====
-// Consulta a pagina de disponibilidade da NFe, seguindo redirecionamentos
-// com cookie jar manual e fazendo parsing das tabelas de status por UF
-// Toolbox - status SEFAZ (consulta pelo servidor, com cookie jar e parsing do portal oficial)
-const SEFAZ_URL = 'https://www.nfe.fazenda.gov.br/portal/disponibilidade.aspx';
-
-// Fetch com suporte a cookies de sessao (ASPSESSIONID etc.) e redirecionamentos manuais
 async function fetchWithCookies(url, maxRedirects = 5, signal) {
   let cookies = '';
   let currentUrl = url;
@@ -823,9 +130,6 @@ async function fetchWithCookies(url, maxRedirects = 5, signal) {
   throw new Error('Muitos redirecionamentos');
 }
 
-// Extrai o HTML da tabela de disponibilidade: status por UF (verde/amarelo/
-// vermelho) em cada servico (autorizacao, retorno, inutilizacao, etc.)
-// e a quantidade de usuarios em contingencia SVC-AN/SVC-RS
 function parseSefaAvailability(html) {
   const checkedMatch = html.match(/(\d{2}\/\d{2}\/\d{4}\s+\d{2}:\d{2}:\d{2})/);
   const rows = [];
@@ -865,81 +169,6 @@ function parseSefaAvailability(html) {
   };
 }
 
-// Endpoint da consulta SEFAZ: timeout de 15s e resposta normalizada
-// ({ ok: true, rows, contingencia } ou { ok: false, error })
-app.get('/api/toolbox/sefa-status', async (req, res) => {
-  const controller = new AbortController();
-  const timer = setTimeout(() => controller.abort(), 15000);
-  try {
-    const response = await fetchWithCookies(SEFAZ_URL, 5, controller.signal);
-    clearTimeout(timer);
-    if (!response.ok) {
-      return res.json({ ok: false, error: 'Portal respondeu HTTP ' + response.status });
-    }
-    const html = await response.text();
-    const parsed = parseSefaAvailability(html);
-    if (!parsed.rows.length) {
-      return res.json({ ok: false, error: 'Nao foi possivel interpretar a pagina de disponibilidade' });
-    }
-    res.json({ ok: true, ...parsed });
-  } catch (e) {
-    clearTimeout(timer);
-    res.json({ ok: false, error: e.name === 'AbortError' ? 'Tempo esgotado (15s)' : e.message });
-  }
-});
-
-// ===== TOOLBOX - CONSULTA CNPJ =====
-// Fonte principal: ReceitaWS. Enriquecimento da Inscricao Estadual via
-// Sintegra (se chave configurada) ou BrasilAPI, com throttle e cache em disco
-// Toolbox - consulta CNPJ (ReceitaWS + enriquecimento IE via BrasilAPI com throttle + cache)
-const CNPJ_CACHE_FILE = path.join(__dirname, '..', 'toolbox-cache.json');
-const CNPJ_CACHE_TTL = 24 * 3600 * 1000;
-let LAST_BRASILAPI_AT = 0;
-const BRASILAPI_MIN_GAP = 25000;
-
-function loadCnpjCache() {
-  try {
-    if (fs.existsSync(CNPJ_CACHE_FILE)) {
-      return JSON.parse(fs.readFileSync(CNPJ_CACHE_FILE, 'utf8'));
-    }
-  } catch (e) { /* ignore */ }
-  return {};
-}
-function saveCnpjCache(cache) {
-  try { fs.writeFileSync(CNPJ_CACHE_FILE, JSON.stringify(cache), 'utf8'); } catch (e) { /* ignore */ }
-}
-
-// Chave Sintegra (sintegrabrasil.com.br - gratis, 10 req/min)
-// Configuracao da Toolbox persistida em toolbox-config.json
-const TOOLBOX_CONFIG_FILE = path.join(__dirname, '..', 'toolbox-config.json');
-function loadToolboxConfig() {
-  try {
-    if (fs.existsSync(TOOLBOX_CONFIG_FILE)) {
-      return JSON.parse(fs.readFileSync(TOOLBOX_CONFIG_FILE, 'utf8'));
-    }
-  } catch (e) { /* ignore */ }
-  return {};
-}
-function saveToolboxConfig(cfg) {
-  try { fs.writeFileSync(TOOLBOX_CONFIG_FILE, JSON.stringify(cfg, null, 2), 'utf8'); } catch (e) { /* ignore */ }
-}
-
-app.get('/api/toolbox/config', (req, res) => {
-  res.json({ sintegraConfigured: !!loadToolboxConfig().sintegraApiKey });
-});
-
-app.put('/api/toolbox/config', (req, res) => {
-  const { sintegraApiKey } = req.body || {};
-  const cfg = loadToolboxConfig();
-  if (sintegraApiKey !== undefined) {
-    cfg.sintegraApiKey = String(sintegraApiKey).trim();
-  }
-  saveToolboxConfig(cfg);
-  res.json({ ok: true, sintegraConfigured: !!cfg.sintegraApiKey });
-});
-
-// Consulta a BrasilAPI com espacamento minimo de 25s entre chamadas
-// (API publica tem limite agressivo por IP)
 async function fetchBrasilApi(cnpj) {
   if (Date.now() - LAST_BRASILAPI_AT < BRASILAPI_MIN_GAP) return null;
   LAST_BRASILAPI_AT = Date.now();
@@ -954,400 +183,986 @@ async function fetchBrasilApi(cnpj) {
   }
 }
 
-// Endpoint principal: valida CNPJ (14 digitos), verifica cache, consulta
-// ReceitaWS, enriquece IE (Sintegra/BrasilAPI) e grava no cache
-app.get('/api/toolbox/cnpj/:cnpj', async (req, res) => {
-  const cnpj = (req.params.cnpj || '').replace(/\D/g, '').padStart(14, '0');
-  const forceRefresh = req.query.refresh === '1';
-  if (cnpj.length !== 14) return res.json({ ok: false, error: 'CNPJ deve ter 14 digitos' });
-  const cache = loadCnpjCache();
-  const cached = cache[cnpj];
-  if (!forceRefresh && cached && Date.now() - cached.at < CNPJ_CACHE_TTL) {
-    return res.json({ ok: true, source: 'cache', data: cached.data });
-  }
-  try {
-    // Fonte principal: ReceitaWS (confiavel)
-    const rw = await fetch('https://www.receitaws.com.br/v1/cnpj/' + cnpj);
-    if (rw.ok) {
-      const j = await rw.json();
-      if (j.status === 'ERROR') return res.json({ ok: false, error: j.message || 'Nao foi possivel consultar o CNPJ' });
-      const data = {
-        cnpj: j.cnpj,
-        razaoSocial: j.nome,
-        fantasia: j.fantasia,
-        situacao: j.situacao,
-        dataSituacao: j.data_situacao,
-        dataAbertura: j.abertura,
-        ie: null,
-        ieFonte: null,
-        inscricoes: [],
-        im: null,
-        porte: j.porte,
-        capitalSocial: j.capital_social,
-        naturezaJuridica: j.natureza_juridica,
-        atividadePrincipal: j.atividade_principal && j.atividade_principal[0] ? j.atividade_principal[0].texto : null,
-        cnaePrincipal: j.atividade_principal && j.atividade_principal[0] ? j.atividade_principal[0].code : null,
-        cnaesSecundarios: (j.atividades_secundarias || []).map(a => a.code + ' - ' + a.texto).slice(0, 10),
-        endereco: ((j.logradouro || '') + ', ' + (j.numero || '') + (j.complemento ? ', ' + j.complemento : '') + ' - ' + (j.bairro || '') + ', ' + (j.municipio || '') + '/' + (j.uf || '') + ' - CEP ' + (j.cep || '')).replace(/^, /, ''),
-        telefone: j.telefone || null,
-        email: j.email || null,
-        socios: (j.qsa || []).slice(0, 8).map(s => s.nome + (s.qual ? ' (' + s.qual + ')' : ''))
-      };
-      // Enriquecimento com IE (Sintegra se chave configurada, senao BrasilAPI)
-      let ieFromSintegra = false;
-      const cfg = loadToolboxConfig();
-      if (cfg.sintegraApiKey) {
-        try {
-          const st = await fetch('https://www.sintegrabrasil.com.br/api/v1/cnpj/' + cnpj, {
-            headers: { 'X-Api-Key': cfg.sintegraApiKey }
-          });
-          if (st.ok) {
-            const sj = await st.json();
-            if (Array.isArray(sj.inscricoes_estaduais) && sj.inscricoes_estaduais.length) {
-              data.inscricoes = sj.inscricoes_estaduais.map(ie => ({
-                ie: ie.inscricao_estadual,
-                ativa: !!ie.ativo,
-                uf: ie.uf || null,
-                atualizadoEm: ie.atualizado_em || null
-              }));
-              data.ie = data.inscricoes[0].ie;
-              data.ieFonte = 'sintegra';
-              ieFromSintegra = true;
-            }
-          }
-        } catch (e) { /* Sintegra indisponivel - segue para BrasilAPI */ }
-      }
-      if (!ieFromSintegra) {
-        const bj = await fetchBrasilApi(cnpj);
-        if (bj) {
-          const be = bj.estabelecimento || {};
-          if (be.inscricao_estadual) { data.ie = be.inscricao_estadual; data.ieFonte = 'brasilapi'; }
-          if (be.inscricao_municipal) data.im = be.inscricao_municipal;
-          if (!data.cnpj) data.cnpj = bj.cnpj;
-        }
-      }
-      cache[cnpj] = { at: Date.now(), data };
-      saveCnpjCache(cache);
-      return res.json({ ok: true, source: 'receitaws' + (data.ie ? '+brasilapi' : ''), data });
-    }
-    // Fallback: BrasilAPI direto
-    const bj = await fetchBrasilApi(cnpj);
-    if (bj) {
-      const e = bj.estabelecimento || {};
-      const data = {
-        cnpj: bj.cnpj,
-        razaoSocial: bj.razao_social,
-        fantasia: bj.nome_fantasia,
-        situacao: bj.descricao_situacao_cadastral,
-        dataSituacao: bj.data_situacao_cadastral,
-        dataAbertura: bj.data_inicio_atividade,
-        ie: e.inscricao_estadual || null,
-        ieFonte: e.inscricao_estadual ? 'brasilapi' : null,
-        inscricoes: [],
-        im: e.inscricao_municipal || null,
-        porte: bj.descricao_porte || (bj.porte && bj.porte.descricao) || null,
-        capitalSocial: bj.capital_social,
-        naturezaJuridica: bj.natureza_juridica,
-        atividadePrincipal: (e.atividade_principal && e.atividade_principal.descricao) || null,
-        cnaePrincipal: (e.atividade_principal && e.atividade_principal.code) || null,
-        cnaesSecundarios: (e.atividades_secundarias || []).map(a => a.code + ' - ' + a.descricao).slice(0, 10),
-        endereco: ((e.tipo_logradouro || '') + ' ' + (e.logradouro || '')).trim() + (e.numero ? ', ' + e.numero : '') + (e.complemento ? ', ' + e.complemento : '') + ' - ' + (e.bairro || '') + ', ' + ((e.municipio && e.municipio.descricao) || '') + '/' + ((e.estado && e.estado.sigla) || '') + ' - CEP ' + (e.cep || ''),
-        telefone: (e.ddd1 || e.telefone1) ? '(' + (e.ddd1 || '') + ') ' + (e.telefone1 || '') : null,
-        email: e.email || null,
-        socios: (bj.socios || []).slice(0, 8).map(s => s.nome_socio + (s.qualificacao_socio && s.qualificacao_socio.descricao ? ' (' + s.qualificacao_socio.descricao + ')' : ''))
-      };
-      cache[cnpj] = { at: Date.now(), data };
-      saveCnpjCache(cache);
-      return res.json({ ok: true, source: 'brasilapi', data });
-    }
-    return res.json({ ok: false, error: 'Falha ao consultar (HTTP ' + (rw.status || 0) + ') - limite de requisicoes atingido, tente novamente em 1 minuto' });
-  } catch (e) {
-    return res.json({ ok: false, error: e.message });
-  }
-});
+export function createServer(port = 3000) {
+  const app = express();
+  httpServer = http.createServer(app);
+  io = new Server(httpServer, { cors: { origin: '*' } });
 
-// ===== TOOLBOX - CHAVE DE ACESSO NFE =====
-// Decodifica a chave de 44 digitos: UF, data de emissao, CNPJ do emitente,
-// modelo, serie, numero e tipo de emissao; o digito verificador e recalculado
-// para validar a chave (modulo 11 com pesos 2..9)
-// Toolbox - validacao e decodificacao de chave de acesso NFe
-const NF_UF_CODES = { '11': 'RO', '12': 'AC', '13': 'AM', '14': 'RR', '15': 'PA', '16': 'AP', '17': 'TO', '21': 'MA', '22': 'PI', '23': 'CE', '24': 'RN', '25': 'PB', '26': 'PE', '27': 'AL', '28': 'SE', '29': 'BA', '31': 'MG', '32': 'ES', '33': 'RJ', '35': 'SP', '41': 'PR', '42': 'SC', '43': 'RS', '50': 'MS', '51': 'MT', '52': 'GO', '53': 'DF', '91': 'AN' };
-
-app.get('/api/toolbox/nfe/:chave', (req, res) => {
-  const chave = (req.params.chave || '').replace(/\D/g, '');
-  if (chave.length !== 44) return res.json({ ok: false, error: 'A chave deve ter 44 digitos' });
-  const base = chave.substring(0, 43);
-  let sum = 0, w = 2;
-  for (let i = base.length - 1; i >= 0; i--) {
-    sum += Number(base[i]) * w;
-    w = w === 9 ? 2 : w + 1;
+  if (!fs.existsSync(IMAGES_DIR)) {
+    fs.mkdirSync(IMAGES_DIR, { recursive: true });
   }
-  const dv = sum % 11 < 2 ? 0 : 11 - (sum % 11);
-  const valida = dv === Number(chave[43]);
-  const uf = NF_UF_CODES[chave.substring(0, 2)] || 'Desconhecida';
-  const aamm = chave.substring(2, 6);
-  res.json({
-    ok: true,
-    valida,
-    chave,
-    uf: { codigo: chave.substring(0, 2), sigla: uf },
-    dataEmissao: aamm.substring(2, 4) + '/' + '20' + aamm.substring(0, 2),
-    cnpjEmitente: chave.substring(6, 20),
-    modelo: chave.substring(20, 22),
-    serie: chave.substring(22, 25),
-    numero: chave.substring(25, 34),
-tipoEmissao: chave.substring(34, 35)
+
+  app.use(express.json({ limit: '10mb' }));
+  app.use(express.static(path.join(__dirname, '..', 'dist')));
+
+  app.get('/cadastrar', (req, res) => {
+    res.sendFile(path.join(__dirname, '..', 'public', 'cadastrar.html'));
   });
-});
 
-// ===== ATTACHMENTS (anexos de arquivos) =====
-// Imagens/arquivos sao salvos em /notion/_images/<pasta> com nome unico;
-// metadados (nome original) ficam em _metadata.json e a referencia e
-// inserida na secao "## Anexos" do markdown
-app.post('/api/attachments/upload', (req, res) => {
-  const { folder, filename, fileData, originalName } = req.body;
-  
-  if (!fileData || !originalName) {
-    return res.status(400).json({ error: 'Dados do arquivo nao fornecidos' });
-  }
+  app.get('/api/folders', (req, res) => {
+    const db = getDb();
+    const folders = db.prepare('SELECT id, name FROM folders').all();
+    res.json(folders.map(f => ({ name: f.name, path: f.name })));
+  });
 
-  // Gerar nome unico
-  const ext = path.extname(originalName) || '.bin';
-  const uniqueName = `${Date.now()}_${crypto.randomBytes(4).toString('hex')}${ext}`;
-  
-  // Criar pasta da pasta de origem
-  const folderDir = path.join(IMAGES_DIR, folder.replace(/\//g, '_'));
-  if (!fs.existsSync(folderDir)) {
-    fs.mkdirSync(folderDir, { recursive: true });
-  }
-
-  // Decodificar base64 e salvar
-  const base64Data = fileData.replace(/^data:[^;]+;base64,/, '');
-  const filePath = path.join(folderDir, uniqueName);
-  
-  try {
-    fs.writeFileSync(filePath, base64Data, 'base64');
-    
-    // Salvar metadados com nome original
-    const metaFile = path.join(folderDir, '_metadata.json');
-    let metadata = {};
-    if (fs.existsSync(metaFile)) {
-      try {
-        metadata = JSON.parse(fs.readFileSync(metaFile, 'utf8'));
-      } catch (e) {}
+  app.post('/api/folders', (req, res) => {
+    const { name } = req.body;
+    const db = getDb();
+    const existing = db.prepare('SELECT id FROM folders WHERE name = ?').get(name);
+    if (existing) {
+      return res.status(400).json({ error: 'Pasta já existe' });
     }
-    metadata[uniqueName] = originalName;
-    fs.writeFileSync(metaFile, JSON.stringify(metadata, null, 2), 'utf8');
-    
-    // Salvar referência no arquivo .md
-    if (filename) {
-      const mdPath = path.join(NOTION_PATH, folder, filename);
-      if (fs.existsSync(mdPath)) {
-        let content = fs.readFileSync(mdPath, 'utf8');
-        const isImage = /\.(png|jpg|jpeg|gif|webp|bmp)$/i.test(originalName);
-        const attachRef = isImage 
-          ? `\n![${originalName}](/_images/${folder.replace(/\//g, '_')}/${uniqueName})`
-          : `\n[ ${originalName} ](/_images/${folder.replace(/\//g, '_')}/${uniqueName})`;
-        
-        // Verificar se já existe seção de anexos
-        if (content.includes('## Anexos')) {
-          content = content.replace('## Anexos\n', `## Anexos\n${attachRef}\n`);
-        } else {
-          content += `\n\n## Anexos\n${attachRef}`;
-        }
-        
-        fs.writeFileSync(mdPath, content, 'utf8');
-      }
-    }
-    
-    res.json({ success: true, attachPath: `/_images/${folder.replace(/\//g, '_')}/${uniqueName}` });
-  } catch (err) {
-    res.status(500).json({ error: 'Erro ao salvar arquivo' });
-  }
-});
+    db.prepare('INSERT INTO folders(name) VALUES(?)').run(name);
+    io.emit('data-changed');
+    res.json({ success: true });
+  });
 
-// Listar anexos de um arquivo
-app.get('/api/attachments/:folder/:filename', (req, res) => {
-  const { folder, filename } = req.params;
-  const folderDir = path.join(IMAGES_DIR, folder.replace(/\//g, '_'));
-  
-  if (!fs.existsSync(folderDir)) {
-    return res.json([]);
-  }
-  
-  // Carregar metadados de nomes originais
-  const metaFile = path.join(folderDir, '_metadata.json');
-  let metadata = {};
-  if (fs.existsSync(metaFile)) {
-    try {
-      metadata = JSON.parse(fs.readFileSync(metaFile, 'utf8'));
-    } catch (e) {}
-  }
-  
-  // Procurar anexos referenciados no arquivo
-  const mdPath = path.join(NOTION_PATH, folder, filename);
-  let referencedFiles = [];
-  
-  if (fs.existsSync(mdPath)) {
-    const content = fs.readFileSync(mdPath, 'utf8');
-    const attachRegex = /\!\[.*?\]\(\/_images\/([^)]+)\)|\[\s*.*?\]\(\/_images\/([^)]+)\)/g;
-    let match;
-    while ((match = attachRegex.exec(content)) !== null) {
-      const ref = match[1] || match[2];
-      if (ref) referencedFiles.push(ref);
+  app.put('/api/folders/:oldName', (req, res) => {
+    const { oldName } = req.params;
+    const { newName } = req.body;
+    const db = getDb();
+    const folder = findFolder(oldName);
+    if (!folder) {
+      return res.status(404).json({ error: 'Pasta não encontrada' });
     }
-  }
-  
-  const allFiles = fs.readdirSync(folderDir).filter(f => f !== '_metadata.json');
-  const attachments = allFiles
-    .filter(f => referencedFiles.some(ref => ref.endsWith(f)))
-    .map(f => {
-      const isImage = /\.(png|jpg|jpeg|gif|webp|bmp)$/i.test(f);
-      const originalName = metadata[f] || f;
-      return {
-        name: f,
-        originalName,
-        path: `/_images/${folder.replace(/\//g, '_')}/${f}`,
-        url: `/_images/${folder.replace(/\//g, '_')}/${f}`,
-        isImage
-      };
-    });
-  
-  res.json(attachments);
-});
+    const existing = db.prepare('SELECT id FROM folders WHERE name = ? AND id != ?').get(newName, folder.id);
+    if (existing) {
+      return res.status(400).json({ error: 'Já existe uma pasta com esse nome' });
+    }
+    db.prepare('UPDATE folders SET name = ? WHERE id = ?').run(newName, folder.id);
+    io.emit('data-changed');
+    res.json({ success: true });
+  });
 
-// Deletar anexo
-app.delete('/api/attachments/:folder/:fileName', (req, res) => {
-  const { folder, fileName } = req.params;
-  const filePath = path.join(IMAGES_DIR, folder.replace(/\//g, '_'), fileName);
-  
-  // Remover arquivo
-  if (fs.existsSync(filePath)) {
-    fs.unlinkSync(filePath);
-  }
-  
-  // Remover referência do markdown
-  const folderDir = path.join(NOTION_PATH, folder);
-  if (fs.existsSync(folderDir)) {
-    const files = fs.readdirSync(folderDir).filter(f => f.endsWith('.md'));
+  app.delete('/api/folders/:name', (req, res) => {
+    const db = getDb();
+    const folder = findFolder(req.params.name);
+    if (!folder) return res.status(404).json({ error: 'Pasta não encontrada' });
+
+    const files = db.prepare('SELECT id, name, content FROM files WHERE folder_id = ?').all(folder.id);
+    const insertTrash = db.prepare('INSERT INTO trash(original_folder, original_name, content) VALUES(?, ?, ?)');
     for (const file of files) {
-      const mdPath = path.join(folderDir, file);
-      let content = fs.readFileSync(mdPath, 'utf8');
-      const escapedFileName = fileName.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
-      const attachRefRegex = new RegExp(`\\!\\[.*?\\]\\(/_images/${folder.replace(/\//g, '_')}/${escapedFileName}\\)|\\[\\s*.*?\\]\\(/_images/${folder.replace(/\//g, '_')}/${escapedFileName}\\)`, 'g');
-      if (attachRefRegex.test(content)) {
-        content = content.replace(attachRefRegex, '');
-        // Remover seção "## Anexos" se estiver vazia
-        content = content.replace(/## Anexos\n\n*/g, '');
-        fs.writeFileSync(mdPath, content, 'utf8');
-        break;
+      insertTrash.run(folder.name, file.name, file.content);
+    }
+
+    db.prepare('DELETE FROM folders WHERE id = ?').run(folder.id);
+    io.emit('data-changed');
+    res.json({ success: true, movedFiles: files.length });
+  });
+
+  app.get('/api/files/:folder', (req, res) => {
+    const folder = findFolder(req.params.folder);
+    if (!folder) return res.json([]);
+    const db = getDb();
+    const files = db.prepare('SELECT id, name FROM files WHERE folder_id = ?').all(folder.id);
+    res.json(files.map(f => ({ name: f.name, filename: f.name + '.md', folder: folder.name })));
+  });
+
+  app.get('/api/file/:folder/:filename', (req, res) => {
+    const folder = findFolder(req.params.folder);
+    if (!folder) return res.status(404).json({ error: 'Pasta não encontrada' });
+    const nameWithoutExt = stripMd(req.params.filename);
+    const file = findFile(folder.id, nameWithoutExt);
+    if (!file) {
+      return res.status(404).json({ error: 'Arquivo não encontrado' });
+    }
+    res.json({ content: file.content, filename: req.params.filename, folder: folder.name });
+  });
+
+  app.post('/api/file/:folder', (req, res) => {
+    const db = getDb();
+    let folder = findFolder(req.params.folder);
+    if (!folder) {
+      db.prepare('INSERT INTO folders(name) VALUES(?)').run(req.params.folder);
+      folder = findFolder(req.params.folder);
+    }
+    const { filename: rawFilename, content } = req.body;
+    const nameWithoutExt = stripMd(rawFilename || '');
+    db.prepare('INSERT INTO files(folder_id, name, content) VALUES(?, ?, ?)').run(folder.id, nameWithoutExt, content || '');
+    const file = findFile(folder.id, nameWithoutExt);
+    if (file) syncFileTags(file.id, content || '');
+    io.emit('data-changed');
+    sendNotification(`📝 *Novo erro criado:*\n${nameWithoutExt} (${req.params.folder})`);
+    res.json({ success: true, filename: nameWithoutExt });
+  });
+
+  app.put('/api/file/:folder/:filename', (req, res) => {
+    const db = getDb();
+    const folder = findFolder(req.params.folder);
+    if (!folder) return res.status(404).json({ error: 'Pasta não encontrada' });
+    const nameWithoutExt = stripMd(req.params.filename);
+    const file = findFile(folder.id, nameWithoutExt);
+    if (!file) {
+      return res.status(404).json({ error: 'Arquivo não encontrado' });
+    }
+    db.prepare('UPDATE files SET content = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?').run(req.body.content, file.id);
+    syncFileTags(file.id, req.body.content);
+    io.emit('data-changed');
+    sendNotification(`✏️ *Erro atualizado:*\n${nameWithoutExt} (${folder.name})`);
+    res.json({ success: true });
+  });
+
+  app.delete('/api/file/:folder/:filename', (req, res) => {
+    const db = getDb();
+    const folder = findFolder(req.params.folder);
+    if (!folder) return res.status(404).json({ error: 'Pasta não encontrada' });
+    const nameWithoutExt = stripMd(req.params.filename);
+    const file = findFile(folder.id, nameWithoutExt);
+
+    if (file) {
+      db.prepare('INSERT INTO trash(original_folder, original_name, content) VALUES(?, ?, ?)').run(folder.name, file.name, file.content);
+      db.prepare('DELETE FROM files WHERE id = ?').run(file.id);
+    }
+
+    io.emit('data-changed');
+    sendNotification(`🗑️ *Erro excluido:*\n${nameWithoutExt} (${folder.name})`);
+    res.json({ success: true });
+  });
+
+  app.put('/api/file/:folder/:filename/tags', (req, res) => {
+    const db = getDb();
+    const folder = findFolder(req.params.folder);
+    if (!folder) return res.status(404).json({ error: 'Pasta não encontrada' });
+    const nameWithoutExt = stripMd(req.params.filename);
+    const file = findFile(folder.id, nameWithoutExt);
+    if (!file) {
+      return res.status(404).json({ error: 'Arquivo não encontrado' });
+    }
+
+    let content = file.content || '';
+    content = content.replace(/\n## Tags\n[\s\S]*?(?=\n## |\n# |\nÚltima|$)/, '');
+
+    if (req.body.tags && req.body.tags.length > 0) {
+      const tagsSection = '\n## Tags\n' + req.body.tags.map(t => `- ${t}`).join('\n');
+      content += tagsSection;
+    }
+
+    db.prepare('UPDATE files SET content = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?').run(content, file.id);
+    syncFileTags(file.id, content);
+    io.emit('data-changed');
+    res.json({ success: true });
+  });
+
+  app.put('/api/file/:folder/:filename/rename', (req, res) => {
+    const db = getDb();
+    const folder = findFolder(req.params.folder);
+    if (!folder) return res.status(404).json({ error: 'Pasta não encontrada' });
+    let { newFilename } = req.body;
+    if (!newFilename) return res.status(400).json({ error: 'Nome obrigatorio' });
+    const newWithoutExt = stripMd(newFilename);
+    const oldWithoutExt = stripMd(req.params.filename);
+    const file = findFile(folder.id, oldWithoutExt);
+    if (!file) {
+      return res.status(404).json({ error: 'Arquivo não encontrado' });
+    }
+    const existing = findFile(folder.id, newWithoutExt);
+    if (existing && existing.id !== file.id) {
+      return res.status(400).json({ error: 'Já existe um arquivo com esse nome' });
+    }
+    db.prepare('UPDATE files SET name = ? WHERE id = ?').run(newWithoutExt, file.id);
+    io.emit('data-changed');
+    sendNotification(`📝 *Erro renomeado:*\n${oldWithoutExt} → ${newWithoutExt} (${folder.name})`);
+    res.json({ success: true, newFilename: newWithoutExt + '.md' });
+  });
+
+  app.put('/api/file/:folder/:filename/move', (req, res) => {
+    const db = getDb();
+    const sourceFolder = findFolder(req.params.folder);
+    if (!sourceFolder) return res.status(404).json({ error: 'Pasta não encontrada' });
+    const targetFolder = findFolder(req.body.targetFolder);
+    if (!targetFolder) {
+      return res.status(404).json({ error: 'Pasta destino não encontrada' });
+    }
+    const nameWithoutExt = stripMd(req.params.filename);
+    const file = findFile(sourceFolder.id, nameWithoutExt);
+    if (!file) {
+      return res.status(404).json({ error: 'Arquivo não encontrado' });
+    }
+    const existing = findFile(targetFolder.id, nameWithoutExt);
+    if (existing) {
+      return res.status(400).json({ error: 'Já existe um arquivo com esse nome na pasta destino' });
+    }
+    db.prepare('UPDATE files SET folder_id = ? WHERE id = ?').run(targetFolder.id, file.id);
+    io.emit('data-changed');
+    sendNotification(`📦 *Erro movido:*\n${nameWithoutExt}\n${sourceFolder.name} → ${targetFolder.name}`);
+    res.json({ success: true });
+  });
+
+  app.get('/api/search', (req, res) => {
+    const query = req.query.q.toLowerCase();
+    const db = getDb();
+    const rows = db.prepare(`
+      SELECT f.name, f.content, fo.name as folder
+      FROM files f
+      JOIN folders fo ON f.folder_id = fo.id
+    `).all();
+    const results = [];
+    for (const row of rows) {
+      if (row.content && (row.content.toLowerCase().includes(query) || row.name.toLowerCase().includes(query))) {
+        const tagMatch = row.content.match(/## Tags\n([\s\S]*?)$/);
+        const tags = tagMatch ? tagMatch[1].split('\n').filter(t => t.startsWith('-')).map(t => t.replace('- ', '').trim()) : [];
+        results.push({ name: row.name, filename: row.name + '.md', folder: row.folder, excerpt: row.content.substring(0, 150), tags });
       }
     }
-  }
-  
-  res.json({ success: true });
-});
+    res.json(results);
+  });
 
-// Servir imagens estáticas
-app.use('/_images', express.static(IMAGES_DIR));
+  app.get('/api/search/advanced', (req, res) => {
+    const { q, folder, tags, dateFrom, dateTo } = req.query;
+    const query = q ? q.toLowerCase() : '';
+    const db = getDb();
+    let sql = 'SELECT f.name, f.content, fo.name as folder FROM files f JOIN folders fo ON f.folder_id = fo.id';
+    const params = [];
+    if (folder) {
+      sql += ' WHERE fo.name = ?';
+      params.push(folder);
+    }
+    const rows = db.prepare(sql).all(...params);
+    const results = [];
 
-// ===== BOT CONFIG (configuracao do bot Telegram) =====
-// Exibe o estado do token (mascarado) e permite definir/remover o token,
-// reiniciando ou parando o bot conforme o caso
-// Bot config
-app.get('/api/bot-config', (req, res) => {
-  const config = loadBotConfig();
-  res.json({ token: config.token ? '***configurado***' : '' });
-});
+    for (const row of rows) {
+      if (query && !(row.content && row.content.toLowerCase().includes(query)) && !row.name.toLowerCase().includes(query)) continue;
 
-app.put('/api/bot-config', (req, res) => {
-  const { token } = req.body;
-  const config = { token: token || '' };
-  fs.writeFileSync(BOT_CONFIG_FILE, JSON.stringify(config, null, 2), 'utf8');
-  if (token) {
-    initBot(token);
-    res.json({ success: true, message: 'Bot reiniciado com novo token' });
-  } else {
-    stopBot();
-    res.json({ success: true, message: 'Token removido' });
-  }
-});
-
-// ===== PUBLIC FORM (cadastro publico de erros) =====
-// Endpoints usados pela pagina standalone 'cadastrar.html': lista
-// folders/tags disponiveis e recebe novos erros da comunidade
-// Public form - get folders and tags
-app.get('/api/public/folders-tags', (req, res) => {
-  const folders = [];
-  if (fs.existsSync(NOTION_PATH)) {
-    fs.readdirSync(NOTION_PATH)
-      .filter(f => fs.statSync(path.join(NOTION_PATH, f)).isDirectory() && f !== TRASH_FOLDER && f !== '_images')
-      .forEach(f => folders.push(f));
-  }
-  const allTags = {};
-  for (const folder of folders) {
-    const fp = path.join(NOTION_PATH, folder);
-    if (!fs.existsSync(fp)) continue;
-    fs.readdirSync(fp).filter(f => f.endsWith('.md')).forEach(file => {
-      const content = fs.readFileSync(path.join(fp, file), 'utf8');
-      const m = content.match(/## Tags\n([\s\S]*?)$/);
-      if (m) {
-        m[1].split('\n').filter(t => t.startsWith('-')).map(t => t.replace('- ', '').trim()).filter(Boolean).forEach(tag => {
-          allTags[tag] = true;
-        });
+      if (tags) {
+        const tagMatch = row.content ? row.content.match(/## Tags\n([\s\S]*?)$/) : null;
+        const fileTags = tagMatch ? tagMatch[1].split('\n').filter(t => t.startsWith('-')).map(t => t.replace('- ', '').trim()) : [];
+        const searchTags = tags.split(',').map(t => t.trim().toLowerCase());
+        if (!searchTags.some(st => fileTags.some(ft => ft.toLowerCase().includes(st)))) continue;
       }
+
+      if (dateFrom || dateTo) {
+        const dateMatch = row.content ? row.content.match(/\*\*Criado em:\*\*\s*(\d{2}\/\d{2}\/\d{4})/) : null;
+        if (dateMatch) {
+          const [, dateStr] = dateMatch;
+          const [day, month, year] = dateStr.split('/');
+          const fileDate = new Date(year, month - 1, day);
+          if (dateFrom) {
+            const [fy, fm, fd] = dateFrom.split('-');
+            if (fileDate < new Date(fy, fm - 1, fd)) continue;
+          }
+          if (dateTo) {
+            const [ty, tm, td] = dateTo.split('-');
+            if (fileDate > new Date(ty, tm - 1, td)) continue;
+          }
+        }
+      }
+
+      const tagMatch = row.content ? row.content.match(/## Tags\n([\s\S]*?)$/) : null;
+      const fileTags = tagMatch ? tagMatch[1].split('\n').filter(t => t.startsWith('-')).map(t => t.replace('- ', '').trim()) : [];
+      results.push({
+        name: row.name,
+        filename: row.name + '.md',
+        folder: row.folder,
+        excerpt: row.content ? row.content.substring(0, 150) : '',
+        tags: fileTags
+      });
+    }
+
+    res.json(results);
+  });
+
+  app.get('/api/stats', (req, res) => {
+    const db = getDb();
+    const stats = { total: 0, byFolder: {}, recentFiles: [], tags: {} };
+    const folders = db.prepare('SELECT id, name FROM folders').all();
+    for (const fo of folders) {
+      const files = db.prepare('SELECT id, name, content, updated_at FROM files WHERE folder_id = ?').all(fo.id);
+      stats.byFolder[fo.name] = files.length;
+      stats.total += files.length;
+      for (const file of files) {
+        stats.recentFiles.push({ name: file.name, filename: file.name + '.md', folder: fo.name, modified: file.updated_at });
+        if (file.content) {
+          const tagMatch = file.content.match(/## Tags\n([\s\S]*?)$/);
+          if (tagMatch) {
+            tagMatch[1].split('\n').filter(t => t.startsWith('-')).map(t => t.replace('- ', '').trim()).forEach(tag => {
+              stats.tags[tag] = (stats.tags[tag] || 0) + 1;
+            });
+          }
+        }
+      }
+    }
+    stats.recentFiles.sort((a, b) => new Date(b.modified) - new Date(a.modified));
+    stats.recentFiles = stats.recentFiles.slice(0, 10);
+    res.json(stats);
+  });
+
+  app.get('/api/favorites', (req, res) => {
+    const db = getDb();
+    const rows = db.prepare(`
+      SELECT f.name as filename, fo.name as folder, fav.added_at as added
+      FROM favorites fav
+      JOIN files f ON fav.file_id = f.id
+      JOIN folders fo ON f.folder_id = fo.id
+    `).all();
+    res.json(rows.map(r => ({ filename: r.filename + '.md', folder: r.folder, added: r.added })));
+  });
+
+  app.post('/api/favorites', (req, res) => {
+    const { filename, folder: folderName } = req.body;
+    const db = getDb();
+    const folder = findFolder(folderName);
+    if (!folder) return res.status(404).json({ error: 'Pasta não encontrada' });
+    const nameWithoutExt = stripMd(filename);
+    const file = findFile(folder.id, nameWithoutExt);
+    if (!file) return res.status(404).json({ error: 'Arquivo não encontrado' });
+    db.prepare('INSERT OR IGNORE INTO favorites(file_id) VALUES(?)').run(file.id);
+    io.emit('data-changed');
+    res.json({ success: true });
+  });
+
+  app.delete('/api/favorites/:folder/:filename', (req, res) => {
+    const db = getDb();
+    const folder = findFolder(req.params.folder);
+    if (folder) {
+      const nameWithoutExt = stripMd(req.params.filename);
+      const file = findFile(folder.id, nameWithoutExt);
+      if (file) {
+        db.prepare('DELETE FROM favorites WHERE file_id = ?').run(file.id);
+      }
+    }
+    io.emit('data-changed');
+    res.json({ success: true });
+  });
+
+  app.get('/api/tags', (req, res) => {
+    const db = getDb();
+    const rows = db.prepare(`
+      SELECT t.name as tag, f.name as filename, fo.name as folder
+      FROM file_tags ft
+      JOIN tags t ON ft.tag_id = t.id
+      JOIN files f ON ft.file_id = f.id
+      JOIN folders fo ON f.folder_id = fo.id
+    `).all();
+    const tags = {};
+    for (const row of rows) {
+      if (!tags[row.tag]) tags[row.tag] = [];
+      tags[row.tag].push({ filename: row.filename + '.md', folder: row.folder });
+    }
+    res.json(tags);
+  });
+
+  app.get('/api/trash', (req, res) => {
+    const db = getDb();
+    const entries = db.prepare('SELECT * FROM trash ORDER BY deleted_at DESC').all();
+    res.json(entries.map(e => ({
+      id: e.id,
+      name: e.original_name,
+      filename: e.original_folder + '__' + e.original_name + '.md',
+      folder: TRASH_FOLDER,
+      originalFolder: e.original_folder
+    })));
+  });
+
+  app.put('/api/trash/restore/:filename', (req, res) => {
+    const db = getDb();
+    const encodedFilename = req.params.filename;
+    const entries = db.prepare('SELECT * FROM trash').all();
+    const trashEntry = entries.find(e => {
+      const composed = e.original_folder + '__' + e.original_name + '.md';
+      return encodeURIComponent(composed) === encodedFilename || composed === encodedFilename;
     });
-  }
-  res.json({ folders, tags: Object.keys(allTags).sort() });
-});
+    if (!trashEntry) return res.status(404).json({ error: 'Arquivo não encontrado' });
 
-// Public form - submit new error
-app.post('/api/public/submit', (req, res) => {
-  const { title: rawTitle, sistema, contexto, resolucao, tags } = req.body;
-  const title = (rawTitle || '').trim();
-  if (!title || !sistema) {
-    return res.status(400).json({ error: 'Titulo e sistema sao obrigatorios' });
-  }
-  const now = new Date();
-  const date = now.toLocaleDateString('pt-BR');
-  const time = now.toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' });
-  const tagsMd = (tags || []).map(t => '- ' + t).join('\n') || '- ';
-  const content = '# ' + title + '\n\n**Criado em:** ' + date + ' ' + time + '\n**Sistema:** ' + sistema + '\n**Contexto / Quando acontece:** ' + (contexto || '') + '\n\n## Resolucao (passo a passo)\n\n' + (resolucao || '') + '\n\n## Observacao\n\n\n\n## Tags\n\n' + tagsMd + '\n\n---\n';
-  const fp = path.join(NOTION_PATH, sistema);
-  if (!fs.existsSync(fp)) fs.mkdirSync(fp, { recursive: true });
-  fs.writeFileSync(path.join(fp, title + '.md'), content, 'utf8');
-  sendNotification('📝 *Erro cadastrado via formulario:*\n' + title + '\n📂 ' + sistema);
-  res.json({ success: true, message: 'Erro cadastrado com sucesso' });
-});
+    let folder = findFolder(trashEntry.original_folder);
+    if (!folder) {
+      db.prepare('INSERT INTO folders(name) VALUES(?)').run(trashEntry.original_folder);
+      folder = findFolder(trashEntry.original_folder);
+    }
 
-// ===== CICLO DE VIDA DO SERVIDOR =====
-// Inicializacao (startServer), reinicio (handleRestart) e encerramento
-// (handleQuit); tambem controla a inicializacao do bot do Telegram
-app.post('/api/bot-stop', (req, res) => {
-  stopBot();
-  res.json({ success: true, message: 'Bot parado' });
-});
+    db.prepare('INSERT INTO files(folder_id, name, content) VALUES(?, ?, ?)').run(folder.id, trashEntry.original_name, trashEntry.content);
+    const file = findFile(folder.id, trashEntry.original_name);
+    if (file) syncFileTags(file.id, trashEntry.content || '');
+    db.prepare('DELETE FROM trash WHERE id = ?').run(trashEntry.id);
 
-// Sobe o servidor HTTP na porta 3000, exibe o banner com IPs da rede
-// e ativa o bot do Telegram caso exista token configurado
-function startServer() {
-  httpServer.listen(PORT, '0.0.0.0', () => {
+    io.emit('data-changed');
+    res.json({ success: true });
+  });
+
+  app.delete('/api/trash/:filename', (req, res) => {
+    const db = getDb();
+    const encodedFilename = req.params.filename;
+    const entries = db.prepare('SELECT * FROM trash').all();
+    const trashEntry = entries.find(e => {
+      const composed = e.original_folder + '__' + e.original_name + '.md';
+      return encodeURIComponent(composed) === encodedFilename || composed === encodedFilename;
+    });
+    if (trashEntry) {
+      db.prepare('DELETE FROM trash WHERE id = ?').run(trashEntry.id);
+    }
+    io.emit('data-changed');
+    res.json({ success: true });
+  });
+
+  app.delete('/api/trash', (req, res) => {
+    const db = getDb();
+    db.prepare('DELETE FROM trash').run();
+    io.emit('data-changed');
+    res.json({ success: true });
+  });
+
+  app.get('/api/folder-colors', (req, res) => {
+    res.json(loadFolderColors());
+  });
+
+  app.put('/api/folder-colors/:folder', (req, res) => {
+    const { folder } = req.params;
+    const { color } = req.body;
+    if (!color) return res.status(400).json({ error: 'Cor obrigatoria' });
+    const colors = loadFolderColors();
+    colors[folder] = color;
+    saveFolderColors(colors);
+    io.emit('data-changed');
+    res.json({ success: true });
+  });
+
+  app.delete('/api/folder-colors/:folder', (req, res) => {
+    const { folder } = req.params;
+    const colors = loadFolderColors();
+    delete colors[folder];
+    saveFolderColors(colors);
+    io.emit('data-changed');
+    res.json({ success: true });
+  });
+
+  app.get('/api/reports', (req, res) => {
+    const db = getDb();
+    const reports = db.prepare('SELECT id, title, category, content FROM reports').all();
+    res.json(reports);
+  });
+
+  app.post('/api/reports', (req, res) => {
+    const { title, category, content } = req.body;
+    if (!title) return res.status(400).json({ error: 'Titulo obrigatorio' });
+    const db = getDb();
+    const result = db.prepare('INSERT INTO reports(title, category, content) VALUES(?, ?, ?)').run(title, category || 'geral', content || '');
+    const report = db.prepare('SELECT id, title, category, content FROM reports WHERE id = ?').get(result.lastInsertRowid);
+    io.emit('data-changed');
+    res.json(report);
+  });
+
+  app.put('/api/reports/:id', (req, res) => {
+    const { id } = req.params;
+    const { title, category, content } = req.body;
+    const db = getDb();
+    const report = db.prepare('SELECT id, title, category, content FROM reports WHERE id = ?').get(Number(id));
+    if (!report) return res.status(404).json({ error: 'Relatorio nao encontrado' });
+    if (title !== undefined) report.title = title;
+    if (category !== undefined) report.category = category;
+    if (content !== undefined) report.content = content;
+    db.prepare('UPDATE reports SET title = ?, category = ?, content = ? WHERE id = ?').run(report.title, report.category, report.content, Number(id));
+    io.emit('data-changed');
+    res.json(report);
+  });
+
+  app.delete('/api/reports/:id', (req, res) => {
+    const db = getDb();
+    db.prepare('DELETE FROM reports WHERE id = ?').run(Number(req.params.id));
+    io.emit('data-changed');
+    res.json({ success: true });
+  });
+
+  app.get('/api/diary', (req, res) => {
+    const { date, search } = req.query;
+    const db = getDb();
+    let sql = 'SELECT id, title, content, category, priority, author, shift, date, resolved, created_at as createdAt, resolved_at as resolvedAt, updated_at as updatedAt FROM diary';
+    const conditions = [];
+    const params = [];
+    if (date) {
+      conditions.push('date = ?');
+      params.push(date);
+    }
+    if (search) {
+      conditions.push('(LOWER(content) LIKE ? OR LOWER(title) LIKE ? OR LOWER(author) LIKE ?)');
+      const q = '%' + search.toLowerCase() + '%';
+      params.push(q, q, q);
+    }
+    if (conditions.length) sql += ' WHERE ' + conditions.join(' AND ');
+    sql += ' ORDER BY created_at DESC';
+    const entries = db.prepare(sql).all(...params);
+    res.json(entries);
+  });
+
+  app.post('/api/diary', (req, res) => {
+    const { title, content, category, priority, author, shift } = req.body;
+    if (!title || !content) return res.status(400).json({ error: 'Titulo e conteudo obrigatorios' });
+    const db = getDb();
+    const now = new Date().toISOString();
+    const date = new Date().toLocaleDateString('pt-BR');
+    const result = db.prepare(`
+      INSERT INTO diary(title, content, category, priority, author, shift, date, resolved, created_at)
+      VALUES(?, ?, ?, ?, ?, ?, ?, 0, ?)
+    `).run(title, content, category || 'ocorrencia', priority || 'normal', author || 'Anonimo', shift || '', date, now);
+    const entry = db.prepare(`
+      SELECT id, title, content, category, priority, author, shift, date, resolved, created_at as createdAt, resolved_at as resolvedAt, updated_at as updatedAt
+      FROM diary WHERE id = ?
+    `).get(result.lastInsertRowid);
+    io.emit('data-changed');
+    res.json(entry);
+  });
+
+  app.put('/api/diary/:id', (req, res) => {
+    const { id } = req.params;
+    const { resolved, content, priority } = req.body;
+    const db = getDb();
+    const entry = db.prepare('SELECT * FROM diary WHERE id = ?').get(Number(id));
+    if (!entry) return res.status(404).json({ error: 'Entrada nao encontrada' });
+
+    let newResolved = entry.resolved;
+    let resolvedAt = entry.resolved_at;
+    let newContent = entry.content;
+    let newPriority = entry.priority;
+    const now = new Date().toISOString();
+
+    if (resolved !== undefined) {
+      newResolved = resolved ? 1 : 0;
+      resolvedAt = resolved ? now : null;
+    }
+    if (content !== undefined) newContent = content;
+    if (priority !== undefined) newPriority = priority;
+
+    db.prepare('UPDATE diary SET resolved = ?, resolved_at = ?, content = ?, priority = ?, updated_at = ? WHERE id = ?')
+      .run(newResolved, resolvedAt, newContent, newPriority, now, Number(id));
+
+    const updated = db.prepare(`
+      SELECT id, title, content, category, priority, author, shift, date, resolved, created_at as createdAt, resolved_at as resolvedAt, updated_at as updatedAt
+      FROM diary WHERE id = ?
+    `).get(Number(id));
+    io.emit('data-changed');
+    res.json(updated);
+  });
+
+  app.delete('/api/diary/:id', (req, res) => {
+    const db = getDb();
+    db.prepare('DELETE FROM diary WHERE id = ?').run(Number(req.params.id));
+    io.emit('data-changed');
+    res.json({ success: true });
+  });
+
+  app.get('/api/toolbox/codes', (req, res) => {
+    const db = getDb();
+    const codes = db.prepare('SELECT id, codigo, descricao FROM toolbox_codes').all();
+    res.json(codes);
+  });
+
+  app.post('/api/toolbox/codes', (req, res) => {
+    const { codigo, descricao } = req.body;
+    if (!codigo || !descricao) return res.status(400).json({ error: 'Codigo e descricao obrigatorios' });
+    const db = getDb();
+    const result = db.prepare('INSERT INTO toolbox_codes(codigo, descricao) VALUES(?, ?)').run(String(codigo), String(descricao));
+    const item = db.prepare('SELECT id, codigo, descricao FROM toolbox_codes WHERE id = ?').get(result.lastInsertRowid);
+    res.json(item);
+  });
+
+  app.put('/api/toolbox/codes/:id', (req, res) => {
+    const { id } = req.params;
+    const db = getDb();
+    const item = db.prepare('SELECT id, codigo, descricao FROM toolbox_codes WHERE id = ?').get(Number(id));
+    if (!item) return res.status(404).json({ error: 'Codigo nao encontrado' });
+    if (req.body.codigo !== undefined) item.codigo = String(req.body.codigo);
+    if (req.body.descricao !== undefined) item.descricao = String(req.body.descricao);
+    db.prepare('UPDATE toolbox_codes SET codigo = ?, descricao = ? WHERE id = ?').run(item.codigo, item.descricao, Number(id));
+    res.json(item);
+  });
+
+  app.delete('/api/toolbox/codes/:id', (req, res) => {
+    const db = getDb();
+    db.prepare('DELETE FROM toolbox_codes WHERE id = ?').run(Number(req.params.id));
+    res.json({ success: true });
+  });
+
+  app.get('/api/toolbox/sefa-status', async (req, res) => {
+    const controller = new AbortController();
+    const timer = setTimeout(() => controller.abort(), 15000);
+    try {
+      const response = await fetchWithCookies(SEFAZ_URL, 5, controller.signal);
+      clearTimeout(timer);
+      if (!response.ok) {
+        return res.json({ ok: false, error: 'Portal respondeu HTTP ' + response.status });
+      }
+      const html = await response.text();
+      const parsed = parseSefaAvailability(html);
+      if (!parsed.rows.length) {
+        return res.json({ ok: false, error: 'Nao foi possivel interpretar a pagina de disponibilidade' });
+      }
+      res.json({ ok: true, ...parsed });
+    } catch (e) {
+      clearTimeout(timer);
+      res.json({ ok: false, error: e.name === 'AbortError' ? 'Tempo esgotado (15s)' : e.message });
+    }
+  });
+
+  app.get('/api/toolbox/config', (req, res) => {
+    res.json({ sintegraConfigured: !!loadToolboxConfig().sintegraApiKey });
+  });
+
+  app.put('/api/toolbox/config', (req, res) => {
+    const { sintegraApiKey } = req.body || {};
+    const cfg = loadToolboxConfig();
+    if (sintegraApiKey !== undefined) {
+      cfg.sintegraApiKey = String(sintegraApiKey).trim();
+    }
+    saveToolboxConfig(cfg);
+    res.json({ ok: true, sintegraConfigured: !!cfg.sintegraApiKey });
+  });
+
+  app.get('/api/toolbox/cnpj/:cnpj', async (req, res) => {
+    const cnpj = (req.params.cnpj || '').replace(/\D/g, '').padStart(14, '0');
+    const forceRefresh = req.query.refresh === '1';
+    if (cnpj.length !== 14) return res.json({ ok: false, error: 'CNPJ deve ter 14 digitos' });
+
+    if (!forceRefresh) {
+      const cached = getCnpjCache(cnpj);
+      if (cached && Date.now() - cached.at < CNPJ_CACHE_TTL) {
+        return res.json({ ok: true, source: 'cache', data: cached.data });
+      }
+    }
+
+    try {
+      const rw = await fetch('https://www.receitaws.com.br/v1/cnpj/' + cnpj);
+      if (rw.ok) {
+        const j = await rw.json();
+        if (j.status === 'ERROR') return res.json({ ok: false, error: j.message || 'Nao foi possivel consultar o CNPJ' });
+        const data = {
+          cnpj: j.cnpj,
+          razaoSocial: j.nome,
+          fantasia: j.fantasia,
+          situacao: j.situacao,
+          dataSituacao: j.data_situacao,
+          dataAbertura: j.abertura,
+          ie: null,
+          ieFonte: null,
+          inscricoes: [],
+          im: null,
+          porte: j.porte,
+          capitalSocial: j.capital_social,
+          naturezaJuridica: j.natureza_juridica,
+          atividadePrincipal: j.atividade_principal && j.atividade_principal[0] ? j.atividade_principal[0].texto : null,
+          cnaePrincipal: j.atividade_principal && j.atividade_principal[0] ? j.atividade_principal[0].code : null,
+          cnaesSecundarios: (j.atividades_secundarias || []).map(a => a.code + ' - ' + a.texto).slice(0, 10),
+          endereco: ((j.logradouro || '') + ', ' + (j.numero || '') + (j.complemento ? ', ' + j.complemento : '') + ' - ' + (j.bairro || '') + ', ' + (j.municipio || '') + '/' + (j.uf || '') + ' - CEP ' + (j.cep || '')).replace(/^, /, ''),
+          telefone: j.telefone || null,
+          email: j.email || null,
+          socios: (j.qsa || []).slice(0, 8).map(s => s.nome + (s.qual ? ' (' + s.qual + ')' : ''))
+        };
+        let ieFromSintegra = false;
+        const cfg = loadToolboxConfig();
+        if (cfg.sintegraApiKey) {
+          try {
+            const st = await fetch('https://www.sintegrabrasil.com.br/api/v1/cnpj/' + cnpj, {
+              headers: { 'X-Api-Key': cfg.sintegraApiKey }
+            });
+            if (st.ok) {
+              const sj = await st.json();
+              if (Array.isArray(sj.inscricoes_estaduais) && sj.inscricoes_estaduais.length) {
+                data.inscricoes = sj.inscricoes_estaduais.map(ie => ({
+                  ie: ie.inscricao_estadual,
+                  ativa: !!ie.ativo,
+                  uf: ie.uf || null,
+                  atualizadoEm: ie.atualizado_em || null
+                }));
+                data.ie = data.inscricoes[0].ie;
+                data.ieFonte = 'sintegra';
+                ieFromSintegra = true;
+              }
+            }
+          } catch (e) {}
+        }
+        if (!ieFromSintegra) {
+          const bj = await fetchBrasilApi(cnpj);
+          if (bj) {
+            const be = bj.estabelecimento || {};
+            if (be.inscricao_estadual) { data.ie = be.inscricao_estadual; data.ieFonte = 'brasilapi'; }
+            if (be.inscricao_municipal) data.im = be.inscricao_municipal;
+            if (!data.cnpj) data.cnpj = bj.cnpj;
+          }
+        }
+        saveCnpjCacheEntry(cnpj, data);
+        return res.json({ ok: true, source: 'receitaws' + (data.ie ? '+brasilapi' : ''), data });
+      }
+      const bj = await fetchBrasilApi(cnpj);
+      if (bj) {
+        const e = bj.estabelecimento || {};
+        const data = {
+          cnpj: bj.cnpj,
+          razaoSocial: bj.razao_social,
+          fantasia: bj.nome_fantasia,
+          situacao: bj.descricao_situacao_cadastral,
+          dataSituacao: bj.data_situacao_cadastral,
+          dataAbertura: bj.data_inicio_atividade,
+          ie: e.inscricao_estadual || null,
+          ieFonte: e.inscricao_estadual ? 'brasilapi' : null,
+          inscricoes: [],
+          im: e.inscricao_municipal || null,
+          porte: bj.descricao_porte || (bj.porte && bj.porte.descricao) || null,
+          capitalSocial: bj.capital_social,
+          naturezaJuridica: bj.natureza_juridica,
+          atividadePrincipal: (e.atividade_principal && e.atividade_principal.descricao) || null,
+          cnaePrincipal: (e.atividade_principal && e.atividade_principal.code) || null,
+          cnaesSecundarios: (e.atividades_secundarias || []).map(a => a.code + ' - ' + a.descricao).slice(0, 10),
+          endereco: ((e.tipo_logradouro || '') + ' ' + (e.logradouro || '')).trim() + (e.numero ? ', ' + e.numero : '') + (e.complemento ? ', ' + e.complemento : '') + ' - ' + (e.bairro || '') + ', ' + ((e.municipio && e.municipio.descricao) || '') + '/' + ((e.estado && e.estado.sigla) || '') + ' - CEP ' + (e.cep || ''),
+          telefone: (e.ddd1 || e.telefone1) ? '(' + (e.ddd1 || '') + ') ' + (e.telefone1 || '') : null,
+          email: e.email || null,
+          socios: (bj.socios || []).slice(0, 8).map(s => s.nome_socio + (s.qualificacao_socio && s.qualificacao_socio.descricao ? ' (' + s.qualificacao_socio.descricao + ')' : ''))
+        };
+        saveCnpjCacheEntry(cnpj, data);
+        return res.json({ ok: true, source: 'brasilapi', data });
+      }
+      return res.json({ ok: false, error: 'Falha ao consultar (HTTP ' + (rw.status || 0) + ') - limite de requisicoes atingido, tente novamente em 1 minuto' });
+    } catch (e) {
+      return res.json({ ok: false, error: e.message });
+    }
+  });
+
+  app.get('/api/toolbox/nfe/:chave', (req, res) => {
+    const chave = (req.params.chave || '').replace(/\D/g, '');
+    if (chave.length !== 44) return res.json({ ok: false, error: 'A chave deve ter 44 digitos' });
+    const base = chave.substring(0, 43);
+    let sum = 0, w = 2;
+    for (let i = base.length - 1; i >= 0; i--) {
+      sum += Number(base[i]) * w;
+      w = w === 9 ? 2 : w + 1;
+    }
+    const dv = sum % 11 < 2 ? 0 : 11 - (sum % 11);
+    const valida = dv === Number(chave[43]);
+    const uf = NF_UF_CODES[chave.substring(0, 2)] || 'Desconhecida';
+    const aamm = chave.substring(2, 6);
+    res.json({
+      ok: true,
+      valida,
+      chave,
+      uf: { codigo: chave.substring(0, 2), sigla: uf },
+      dataEmissao: aamm.substring(2, 4) + '/' + '20' + aamm.substring(0, 2),
+      cnpjEmitente: chave.substring(6, 20),
+      modelo: chave.substring(20, 22),
+      serie: chave.substring(22, 25),
+      numero: chave.substring(25, 34),
+      tipoEmissao: chave.substring(34, 35)
+    });
+  });
+
+  app.post('/api/attachments/upload', (req, res) => {
+    const { folder, filename, fileData, originalName } = req.body;
+
+    if (!fileData || !originalName) {
+      return res.status(400).json({ error: 'Dados do arquivo nao fornecidos' });
+    }
+
+    const ext = path.extname(originalName) || '.bin';
+    const uniqueName = `${Date.now()}_${crypto.randomBytes(4).toString('hex')}${ext}`;
+    const folderDir = path.join(IMAGES_DIR, folder.replace(/\//g, '_'));
+    if (!fs.existsSync(folderDir)) {
+      fs.mkdirSync(folderDir, { recursive: true });
+    }
+
+    const base64Data = fileData.replace(/^data:[^;]+;base64,/, '');
+    const filePath = path.join(folderDir, uniqueName);
+
+    try {
+      fs.writeFileSync(filePath, base64Data, 'base64');
+
+      const db = getDb();
+      let file_id = null;
+      if (filename) {
+        const folderRow = findFolder(folder);
+        if (folderRow) {
+          const fileRow = findFile(folderRow.id, stripMd(filename));
+          if (fileRow) {
+            file_id = fileRow.id;
+            db.prepare('INSERT INTO attachments(file_id, original_name, stored_name) VALUES(?, ?, ?)').run(file_id, originalName, uniqueName);
+
+            let content = fileRow.content || '';
+            const isImage = /\.(png|jpg|jpeg|gif|webp|bmp)$/i.test(originalName);
+            const attachRef = isImage
+              ? `\n![${originalName}](/_images/${folder.replace(/\//g, '_')}/${uniqueName})`
+              : `\n[ ${originalName} ](/_images/${folder.replace(/\//g, '_')}/${uniqueName})`;
+
+            if (content.includes('## Anexos')) {
+              content = content.replace('## Anexos\n', `## Anexos\n${attachRef}\n`);
+            } else {
+              content += `\n\n## Anexos\n${attachRef}`;
+            }
+
+            db.prepare('UPDATE files SET content = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?').run(content, fileRow.id);
+          }
+        }
+      }
+
+      res.json({ success: true, attachPath: `/_images/${folder.replace(/\//g, '_')}/${uniqueName}` });
+    } catch (err) {
+      res.status(500).json({ error: 'Erro ao salvar arquivo' });
+    }
+  });
+
+  app.get('/api/attachments/:folder/:filename', (req, res) => {
+    const { folder, filename } = req.params;
+    const folderDir = path.join(IMAGES_DIR, folder.replace(/\//g, '_'));
+
+    if (!fs.existsSync(folderDir)) {
+      return res.json([]);
+    }
+
+    const db = getDb();
+    const metaMap = {};
+    const folderRow = findFolder(folder);
+    if (folderRow) {
+      const fileRow = findFile(folderRow.id, stripMd(filename));
+      if (fileRow) {
+        const attachments = db.prepare('SELECT original_name, stored_name FROM attachments WHERE file_id = ?').all(fileRow.id);
+        for (const att of attachments) {
+          metaMap[att.stored_name] = att.original_name;
+        }
+      }
+    }
+
+    let referencedFiles = [];
+    if (folderRow) {
+      const fileRow = findFile(folderRow.id, stripMd(filename));
+      if (fileRow && fileRow.content) {
+        const attachRegex = /\!\[.*?\]\(\/_images\/([^)]+)\)|\[\s*.*?\]\(\/_images\/([^)]+)\)/g;
+        let match;
+        while ((match = attachRegex.exec(fileRow.content)) !== null) {
+          const ref = match[1] || match[2];
+          if (ref) referencedFiles.push(ref);
+        }
+      }
+    }
+
+    const allFiles = fs.readdirSync(folderDir).filter(f => f !== '_metadata.json');
+    const attachments = allFiles
+      .filter(f => referencedFiles.some(ref => ref.endsWith(f)))
+      .map(f => {
+        const isImage = /\.(png|jpg|jpeg|gif|webp|bmp)$/i.test(f);
+        const originalName = metaMap[f] || f;
+        return {
+          name: f,
+          originalName,
+          path: `/_images/${folder.replace(/\//g, '_')}/${f}`,
+          url: `/_images/${folder.replace(/\//g, '_')}/${f}`,
+          isImage
+        };
+      });
+
+    res.json(attachments);
+  });
+
+  app.delete('/api/attachments/:folder/:fileName', (req, res) => {
+    const { folder, fileName } = req.params;
+    const filePath = path.join(IMAGES_DIR, folder.replace(/\//g, '_'), fileName);
+
+    if (fs.existsSync(filePath)) {
+      fs.unlinkSync(filePath);
+    }
+
+    const db = getDb();
+    db.prepare('DELETE FROM attachments WHERE stored_name = ?').run(fileName);
+
+    const folderRow = findFolder(folder);
+    if (folderRow) {
+      const files = db.prepare('SELECT id, content FROM files WHERE folder_id = ?').all(folderRow.id);
+      const escapedFileName = fileName.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+      const folderNameEscaped = folder.replace(/\//g, '_');
+
+      for (const file of files) {
+        const attachRefRegex = new RegExp(`\\!\\[.*?\\]\\(/_images/${folderNameEscaped}/${escapedFileName}\\)|\\[\\s*.*?\\]\\(/_images/${folderNameEscaped}/${escapedFileName}\\)`, 'g');
+        if (attachRefRegex.test(file.content || '')) {
+          let content = file.content.replace(attachRefRegex, '');
+          content = content.replace(/## Anexos\n\n*/g, '');
+          db.prepare('UPDATE files SET content = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?').run(content, file.id);
+          break;
+        }
+      }
+    }
+
+    res.json({ success: true });
+  });
+
+  app.use('/_images', express.static(IMAGES_DIR));
+
+  app.get('/api/bot-config', (req, res) => {
+    const config = loadBotConfig();
+    res.json({ token: config.token ? '***configurado***' : '' });
+  });
+
+  app.put('/api/bot-config', (req, res) => {
+    const { token } = req.body;
+    const db = getDb();
+    db.prepare('INSERT OR REPLACE INTO bot_config(key, value) VALUES(?, ?)').run('token', token || '');
+    if (token) {
+      initBot(token);
+      res.json({ success: true, message: 'Bot reiniciado com novo token' });
+    } else {
+      stopBot();
+      res.json({ success: true, message: 'Token removido' });
+    }
+  });
+
+  app.post('/api/bot-stop', (req, res) => {
+    stopBot();
+    res.json({ success: true, message: 'Bot parado' });
+  });
+
+  app.get('/api/public/folders-tags', (req, res) => {
+    const db = getDb();
+    const folderRows = db.prepare('SELECT name FROM folders').all();
+    const folders = folderRows.map(f => f.name);
+    const allTags = {};
+    for (const folderName of folders) {
+      const folderRow = findFolder(folderName);
+      if (!folderRow) continue;
+      const files = db.prepare('SELECT content FROM files WHERE folder_id = ?').all(folderRow.id);
+      for (const file of files) {
+        if (!file.content) continue;
+        const m = file.content.match(/## Tags\n([\s\S]*?)$/);
+        if (m) {
+          m[1].split('\n').filter(t => t.startsWith('-')).map(t => t.replace('- ', '').trim()).filter(Boolean).forEach(tag => {
+            allTags[tag] = true;
+          });
+        }
+      }
+    }
+    res.json({ folders, tags: Object.keys(allTags).sort() });
+  });
+
+  app.post('/api/public/submit', (req, res) => {
+    const { title: rawTitle, sistema, contexto, resolucao, tags } = req.body;
+    const title = (rawTitle || '').trim();
+    if (!title || !sistema) {
+      return res.status(400).json({ error: 'Titulo e sistema sao obrigatorios' });
+    }
+    const now = new Date();
+    const date = now.toLocaleDateString('pt-BR');
+    const time = now.toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' });
+    const tagsMd = (tags || []).map(t => '- ' + t).join('\n') || '- ';
+    const content = '# ' + title + '\n\n**Criado em:** ' + date + ' ' + time + '\n**Sistema:** ' + sistema + '\n**Contexto / Quando acontece:** ' + (contexto || '') + '\n\n## Resolucao (passo a passo)\n\n' + (resolucao || '') + '\n\n## Observacao\n\n\n\n## Tags\n\n' + tagsMd + '\n\n---\n';
+
+    const db = getDb();
+    let folder = findFolder(sistema);
+    if (!folder) {
+      db.prepare('INSERT INTO folders(name) VALUES(?)').run(sistema);
+      folder = findFolder(sistema);
+    }
+    db.prepare('INSERT INTO files(folder_id, name, content) VALUES(?, ?, ?)').run(folder.id, title, content);
+    const file = findFile(folder.id, title);
+    if (file) syncFileTags(file.id, content);
+
+    sendNotification('📝 *Erro cadastrado via formulario:*\n' + title + '\n📂 ' + sistema);
+    res.json({ success: true, message: 'Erro cadastrado com sucesso' });
+  });
+
+  httpServer.listen(port, '0.0.0.0', () => {
     const now = new Date().toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit', second: '2-digit' });
-
     console.log(`\n   ╔══════════════════════════════════════╗`);
     console.log(`   ║     APS Assistance - ONLINE          ║`);
     console.log(`   ╚══════════════════════════════════════╝`);
-    console.log(`\n   Local:   http://localhost:${PORT}`);
-    
+    console.log(`\n   Local:   http://localhost:${port}`);
     const nets = os.networkInterfaces();
     for (const name of Object.keys(nets)) {
       for (const net of nets[name]) {
         if (net.family === 'IPv4' && !net.internal) {
-          console.log(`   Rede:    http://${net.address}:${PORT}`);
+          console.log(`   Rede:    http://${net.address}:${port}`);
         }
       }
     }
-
     const botConfig = loadBotConfig();
     if (botConfig.token) {
       initBot(botConfig.token);
@@ -1356,43 +1171,52 @@ function startServer() {
     } else {
       console.log(`   Telegram: desativado (configure bot-config.json)`);
     }
-
     console.log(`\n   ╔══════════════════════════════════════╗`);
     console.log(`   ║  [R] Reiniciar Servidor              ║`);
     console.log(`   ║  [Q] Sair                            ║`);
     console.log(`   ╚══════════════════════════════════════╝\n`);
   });
+
+  return { app, httpServer, io };
 }
 
-// Reinicia o servidor: para o bot, fecha o HTTP e sobe tudo novamente
 function handleRestart() {
   console.log('\n   Reiniciando servidor...');
   sendNotification('🔄 *Servidor REINICIANDO*');
   setTimeout(() => {
     stopBot();
+    closeDb();
     httpServer.close(() => {
-      startServer();
+      createServer(3000);
     });
   }, 500);
 }
 
-// Encerra o servidor, notificando no Telegram antes de sair do processo
 function handleQuit() {
   console.log('\n   Encerrando servidor...');
   sendNotification('🔴 *Servidor OFFLINE*');
-  setTimeout(() => { stopBot(); process.exit(0); }, 500);
+  setTimeout(() => {
+    stopBot();
+    closeDb();
+    process.exit(0);
+  }, 500);
 }
 
-startServer();
+const isMainModule = process.argv[1] && path.resolve(process.argv[1]) === __filename;
 
-// Atalhos de teclado do terminal quando em modo TTY: [R] reinicia, [Q] sai
-if (process.stdin.isTTY) {
-  process.stdin.setRawMode(true);
-  process.stdin.resume();
-  process.stdin.on('data', (key) => {
-    const k = key.toString().toLowerCase();
-    if (k === 'r') handleRestart();
-    if (k === 'q' || k === '\u0003') handleQuit();
-  });
+if (isMainModule) {
+  createServer(3000);
+
+  process.on('SIGINT', () => handleQuit());
+  process.on('SIGTERM', () => handleQuit());
+
+  if (process.stdin.isTTY) {
+    process.stdin.setRawMode(true);
+    process.stdin.resume();
+    process.stdin.on('data', (key) => {
+      const k = key.toString().toLowerCase();
+      if (k === 'r') handleRestart();
+      if (k === 'q' || k === '\u0003') handleQuit();
+    });
+  }
 }
-

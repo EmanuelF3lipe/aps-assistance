@@ -19,16 +19,16 @@ const MODULES = [
   },
   {
     id: 'diario',
-    name: 'DIARIO DE TURNO',
+    name: 'DIARIO',
     subtitle: 'Registro de ocorrencias',
     icon: <FiBook size={28} />,
     accent: '#3b82f6',
-    tagline: 'Comunique ocorrencias entre turnos'
+    tagline: 'Anote as atividades do dia.'
   },
   {
     id: 'ferramentas',
     name: 'CAIXA DE FERRAMENTAS',
-    subtitle: 'Utilidades do plantao',
+    subtitle: 'Utilidades do Dia a Dia',
     icon: <FiCpu size={28} />,
     accent: '#3b82f6',
     tagline: 'Calculos, SEFAZ, codigos e CFOP na hora'

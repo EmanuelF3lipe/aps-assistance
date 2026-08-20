@@ -23,6 +23,8 @@
     "shift": "Manha",
     "date": "14/08/2026",
     "createdAt": "2026-08-14T10:53:40.748Z",
-    "resolved": false
+    "resolved": true,
+    "resolvedAt": "2026-08-17T17:15:18.069Z",
+    "updatedAt": "2026-08-17T17:15:18.069Z"
   }
 ]

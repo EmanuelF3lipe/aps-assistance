@@ -4,3 +4,8 @@ dist/
 bot-config.json
 notion/
 .opencode/
+release/
+*.db-wal
+*.db-shm
+*.bak-glpi-format.db
+.glpi-*-progress.json

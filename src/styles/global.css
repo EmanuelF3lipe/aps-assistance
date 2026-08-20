@@ -2416,6 +2416,41 @@ button.success:hover {
 [data-theme="light"] .toolbox-code-label { color: #2563eb; }
 [data-theme="light"] .toolbox-cfop-code { color: #2563eb; }
 [data-theme="light"] .toolbox-card-wide { background: #ffffff; border-color: #e0e4ea; }
+[data-theme="light"] .toolbox-card input,
+[data-theme="light"] .toolbox-code-form input {
+  background: #f0f2f5;
+  border-color: #d0d5e0;
+  color: #1a1a2e;
+}
+[data-theme="light"] .toolbox-card input:focus,
+[data-theme="light"] .toolbox-code-form input:focus {
+  border-color: #3b82f6;
+  box-shadow: 0 0 0 3px rgba(59,130,246,0.12);
+  background: #fff;
+}
+[data-theme="light"] .toolbox-card input::placeholder,
+[data-theme="light"] .toolbox-code-form input::placeholder {
+  color: #8890a8;
+}
+[data-theme="light"] .toolbox-card input[type="number"] {
+  color: #1a1a2e;
+}
+[data-theme="light"] .toolbox-card label {
+  color: #6366f1;
+}
+[data-theme="light"] .toolbox-cfop-filter {
+  background: #f0f2f5 !important;
+  border-color: #d0d5e0 !important;
+  color: #1a1a2e !important;
+}
+[data-theme="light"] .toolbox-cfop-filter:focus {
+  border-color: #3b82f6 !important;
+  box-shadow: 0 0 0 3px rgba(59,130,246,0.12) !important;
+  background: #fff !important;
+}
+[data-theme="light"] .toolbox-cfop-filter::placeholder {
+  color: #8890a8 !important;
+}
 
 /* --- Diario --- */
 [data-theme="light"] .sort-bar { background: #ffffff; border-bottom-color: #e0e4ea; }
@@ -3236,9 +3271,88 @@ button.success:hover {
   border-radius: 8px;
 }
 
+/* ------ Toolbox: campos de entrada ------ */
+.toolbox-card input,
+.toolbox-code-form input {
+  background: rgba(0, 0, 0, 0.3);
+  border: 1px solid #2563eb44;
+  color: #e8eaff;
+  padding: 10px 14px;
+  border-radius: 10px;
+  font-size: 14px;
+  font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+  width: 100%;
+  transition: all 0.2s ease;
+  outline: none;
+}
+
+.toolbox-card input::placeholder,
+.toolbox-code-form input::placeholder {
+  color: #5b6090;
+  font-size: 13px;
+}
+
+.toolbox-card input:focus,
+.toolbox-code-form input:focus {
+  border-color: #3b82f6;
+  box-shadow: 0 0 0 3px rgba(59, 130, 246, 0.15), 0 0 12px rgba(59, 130, 246, 0.1);
+  background: rgba(0, 0, 0, 0.4);
+}
+
+.toolbox-card input:hover,
+.toolbox-code-form input:hover {
+  border-color: #2563eb88;
+}
+
+.toolbox-card input[type="number"] {
+  font-family: 'Consolas', 'Courier New', monospace;
+  font-size: 15px;
+  font-weight: 600;
+  letter-spacing: 0.5px;
+  color: #bfdbfe;
+}
+
+.toolbox-card input[type="number"]:focus {
+  color: #fff;
+}
+
+.toolbox-card input[type="password"],
+.toolbox-code-form input[type="password"] {
+  font-family: 'Consolas', monospace;
+  letter-spacing: 2px;
+}
+
+.toolbox-card label {
+  font-size: 11px;
+  font-weight: 600;
+  color: #6366f1;
+  text-transform: uppercase;
+  letter-spacing: 1px;
+  margin-bottom: -4px;
+}
+
 /* ------ Toolbox: consulta de CFOP ------ */
 .toolbox-cfop-filter {
   width: 100%;
+  background: rgba(0, 0, 0, 0.3) !important;
+  border: 1px solid #2563eb44 !important;
+  color: #e8eaff !important;
+  padding: 10px 14px !important;
+  border-radius: 10px !important;
+  font-size: 14px !important;
+  transition: all 0.2s ease !important;
+  outline: none !important;
+}
+
+.toolbox-cfop-filter:focus {
+  border-color: #3b82f6 !important;
+  box-shadow: 0 0 0 3px rgba(59, 130, 246, 0.15), 0 0 12px rgba(59, 130, 246, 0.1) !important;
+  background: rgba(0, 0, 0, 0.4) !important;
+}
+
+.toolbox-cfop-filter::placeholder {
+  color: #5b6090 !important;
+  font-size: 13px !important;
 }
 
 .toolbox-cfop-list {
