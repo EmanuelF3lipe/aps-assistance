@@ -1,0 +1,9 @@
+pas-interface/node_modules/
+pas-interface/dist/
+pas-interface/release/
+pas-interface/*.db-wal
+pas-interface/*.db-shm
+pas-interface/*.bak-*
+pas-interface/.glpi-*-progress.json
+pas-interface/bot-config.json
+pas-interface/Iniciar.bat
